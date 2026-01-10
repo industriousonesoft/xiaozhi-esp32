@@ -146,6 +146,7 @@ void DeviceStateMachine::RemoveStateChangeListener(int listener_id) {
 }
 
 void DeviceStateMachine::NotifyStateChange(DeviceState old_state, DeviceState new_state) {
+    // NOTE: 先拷贝再执行，避免在持有锁的状态下执行回调函数（不可预测行为，如重入导致嵌套死锁等）
     std::vector<StateCallback> callbacks_copy;
     {
         std::lock_guard<std::mutex> lock(mutex_);
