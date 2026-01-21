@@ -214,15 +214,23 @@ NoAudioCodecSimplex::NoAudioCodecSimplex(int input_sample_rate, int output_sampl
     ESP_LOGI(TAG, "Simplex channels created");
 }
 
+/* 把PCM格式的音频数据按音量放大/衰减，通过I2S输出给数字功放 */
 int NoAudioCodec::Write(const int16_t* data, int samples) {
     std::lock_guard<std::mutex> lock(data_if_mutex_);
+    // 此处创建32bit的PCM缓冲区，以兼容ESP32 I2S通信接口
     std::vector<int32_t> buffer(samples);
 
-    // output_volume_: 0-100
-    // volume_factor_: 0-65536
+    // output_volume_: 0-100 - 用户音量，百分比
+    // volume_factor_: 0-65536(2^16) - 线性增益因子（Q16定点格式）
+    // 1、音量归一化：把音量从0~100映射到0.0~1.0
+    // 2、平方运算：人耳对音量的感知是对数的，即非线性的
+    // 3、放大到Q16定点：将浮点音量系数转成定点乘法因子，后续可用整数乘法实现音量缩放（高效率，适合MCU）
+#if 1 /*V1*/
     int32_t volume_factor = pow(double(output_volume_) / 100.0, 2) * 65536;
     for (int i = 0; i < samples; i++) {
+        // NOTE：使用int64防溢出
         int64_t temp = int64_t(data[i]) * volume_factor; // 使用 int64_t 进行乘法运算
+        // 边界检测，过滤异常值，防止爆音或杂音
         if (temp > INT32_MAX) {
             buffer[i] = INT32_MAX;
         } else if (temp < INT32_MIN) {
@@ -231,9 +239,26 @@ int NoAudioCodec::Write(const int16_t* data, int samples) {
             buffer[i] = static_cast<int32_t>(temp);
         }
     }
+#else /*V2*/    
+    // 去掉pow()函数
+    int32_t volume_factor = (v * v * 65536) / 10000;
+    for (int i = 0; i < samples; i++) {
+        // NOTE：使用int64防溢出
+        int64_t temp = int64_t(data[i]) * volume_factor; // 使用 int64_t 进行乘法运算
+        temp >> 16; // 回到音频幅度域
+        // 边界检测，过滤异常值，防止爆音或杂音
+        if (temp > INT32_MAX) {
+            buffer[i] = INT32_MAX;
+        } else if (temp < INT32_MIN) {
+            buffer[i] = INT32_MIN;
+        } else {
+            buffer[i] = static_cast<int32_t>(temp);
+        }
+    }
+#endif
 
     size_t bytes_written;
-    ESP_ERROR_CHECK(i2s_channel_write(tx_handle_, buffer.data(), samples * sizeof(int32_t), &bytes_written, portMAX_DELAY));
+    ESP_ERROR_CHECK(i2s_channel_write(tx_handle_, buffer.data(), samples * sizeof(int32_t), &bytes_written, portMAX_DELAY/*阻塞直到写完*/));
     return bytes_written / sizeof(int32_t);
 }
 
