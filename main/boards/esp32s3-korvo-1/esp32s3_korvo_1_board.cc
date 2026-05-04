@@ -8,12 +8,20 @@
 #include <driver/i2c_master.h>
 #include <esp_log.h>
 
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
 #define TAG "esp32s3_korvo_1"
 
 class Esp32S3Korvo1Board : public WifiBoard {
 private:
     Button boot_button_;
     i2c_master_bus_handle_t i2c_bus_ = nullptr;
+    CircularStrip led_;
+    bool source_led_active_ = false;
+    uint32_t last_source_ms_ = 0;
+    uint32_t last_led_update_ms_ = 0;
 
     void InitializeI2c() {
         i2c_master_bus_config_t i2c_bus_cfg = {
@@ -45,8 +53,54 @@ private:
         });
     }
 
+    bool ShouldShowSourceDirection() {
+        auto state = Application::GetInstance().GetDeviceState();
+        return state == kDeviceStateListening || state == kDeviceStateAudioTesting;
+    }
+
+    int AngleToLedIndex(float angle_deg) {
+        int offset = static_cast<int>(std::lround(angle_deg / 360.0f * BUILTIN_LED_NUM)) % BUILTIN_LED_NUM;
+        int direction = MIC_ARRAY_LED_CLOCKWISE ? 1 : -1;
+        int index = MIC_ARRAY_LED_FRONT_INDEX + direction * offset;
+        index %= BUILTIN_LED_NUM;
+        if (index < 0) {
+            index += BUILTIN_LED_NUM;
+        }
+        ESP_LOGI(TAG, "Angle: %f, index: %d", angle_deg, index);
+        return index;
+    }
+
+    StripColor ScaleColor(uint8_t red, uint8_t green, uint8_t blue, float scale) {
+        scale = std::max(0.0f, std::min(scale, 1.0f));
+        return StripColor {
+            static_cast<uint8_t>(red * scale),
+            static_cast<uint8_t>(green * scale),
+            static_cast<uint8_t>(blue * scale),
+        };
+    }
+
+    void ShowSourceDirection(const Korvo1MicArrayResult& result) {
+        int head = AngleToLedIndex(result.angle_deg);
+        float confidence = std::max(0.2f, std::min(result.confidence, 1.0f));
+        std::vector<StripColor> colors(BUILTIN_LED_NUM);
+
+        colors[head] = ScaleColor(MIC_ARRAY_LED_HEAD_BRIGHTNESS, MIC_ARRAY_LED_SIDE_BRIGHTNESS, 0, confidence);
+        for (int distance = 1; distance <= 2; ++distance) {
+            float side_scale = confidence / (distance + 1);
+            int left = (head - distance + BUILTIN_LED_NUM) % BUILTIN_LED_NUM;
+            int right = (head + distance) % BUILTIN_LED_NUM;
+            colors[left] = ScaleColor(MIC_ARRAY_LED_SIDE_BRIGHTNESS, MIC_ARRAY_LED_SIDE_BRIGHTNESS, 0, side_scale);
+            colors[right] = ScaleColor(MIC_ARRAY_LED_SIDE_BRIGHTNESS, MIC_ARRAY_LED_SIDE_BRIGHTNESS, 0, side_scale);
+        }
+
+        led_.SetMultiColors(colors);
+        source_led_active_ = true;
+        last_source_ms_ = result.timestamp_ms;
+        last_led_update_ms_ = result.timestamp_ms;
+    }
+
 public:
-    Esp32S3Korvo1Board() : boot_button_(BOOT_BUTTON_GPIO) {
+    Esp32S3Korvo1Board() : boot_button_(BOOT_BUTTON_GPIO), led_(BUILTIN_LED_GPIO, BUILTIN_LED_NUM) {
         ESP_LOGI(TAG, "Initializing ESP32-S3-Korvo-1 board");
         InitializeI2c();
         InitializeButtons();
@@ -73,8 +127,36 @@ public:
     }
 
     virtual Led* GetLed() override {
-        static CircularStrip led(BUILTIN_LED_GPIO, BUILTIN_LED_NUM);
-        return &led;
+        return &led_;
+    }
+
+    virtual void OnAudioInputFrame(const int16_t* data, size_t samples, int channels, uint32_t timestamp_ms) override {
+        (void)data;
+        (void)samples;
+
+        if (channels != AUDIO_INPUT_CHANNELS || !ShouldShowSourceDirection()) {
+            if (source_led_active_) {
+                source_led_active_ = false;
+                led_.OnStateChanged();
+            }
+            auto codec = static_cast<Korvo1AudioCodec*>(GetAudioCodec());
+            codec->ResetMicArray();
+            return;
+        }
+
+        auto codec = static_cast<Korvo1AudioCodec*>(GetAudioCodec());
+        auto result = codec->last_mic_array_result();
+        if (result.active) {
+            if (timestamp_ms - last_led_update_ms_ >= MIC_ARRAY_LED_UPDATE_INTERVAL_MS) {
+                ShowSourceDirection(result);
+            } else {
+                source_led_active_ = true;
+                last_source_ms_ = timestamp_ms;
+            }
+        } else if (source_led_active_ && timestamp_ms - last_source_ms_ >= MIC_ARRAY_LED_IDLE_TIMEOUT_MS) {
+            source_led_active_ = false;
+            led_.OnStateChanged();
+        }
     }
 };
 

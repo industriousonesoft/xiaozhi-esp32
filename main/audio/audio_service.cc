@@ -1,4 +1,5 @@
 #include "audio_service.h"
+#include "boards/common/board.h"
 #include <esp_log.h>
 #include <cstring>
 
@@ -215,6 +216,9 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
     /* Update the last input time */
     last_input_time_ = std::chrono::steady_clock::now();
     debug_statistics_.input_count++;
+
+    Board::GetInstance().OnAudioInputFrame(data.data(), data.size(), codec_->input_channels(),
+        static_cast<uint32_t>(esp_timer_get_time() / 1000));
 
 #if CONFIG_USE_AUDIO_DEBUGGER
     // 音频调试：发送原始音频数据

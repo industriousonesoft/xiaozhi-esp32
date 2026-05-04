@@ -4,7 +4,9 @@
 #include <driver/i2c_master.h>
 #include <driver/i2s_std.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 
+#include <algorithm>
 #include <vector>
 
 #define TAG "Korvo1AudioCodec"
@@ -16,7 +18,7 @@ Korvo1AudioCodec::Korvo1AudioCodec(void* i2c_master_handle, int input_sample_rat
     duplex_ = true;
 
     // Korvo-1 的 ES7210 输入里包含扬声器回采/参考通道，AFE 需要知道这一点来启用回声消除。
-    // 这里最终向上层暴露 3 路 16-bit 数据：Mic1、Mic3、Reference。具体通道重排见 Read()。
+    // v2 在 codec 内部先做 3 麦阵列处理，最终只向上层暴露 M/R 两路：增强后的主声源 + Reference。
     input_reference_ = true;
     input_channels_ = input_channels;
     input_sample_rate_ = input_sample_rate;
@@ -303,23 +305,34 @@ int Korvo1AudioCodec::Read(int16_t* dest, int samples) {
     if (input_enabled_) {
         int frames = samples / input_channels_;
 
-        // esp-skainet BSP 的 Korvo-1 原始采集布局按 4 路处理：
-        //   raw[4*i + 0] = reference
-        //   raw[4*i + 1] = mic
-        //   raw[4*i + 2] = unused/noise/reference helper，当前不送入 AFE
-        //   raw[4*i + 3] = mic
-        // 本项目 AFE 需要的是连续 3 路 int16_t：Mic、Mic、Reference，因此这里做一次轻量重排。
-        // 如果后续要启用更多麦克风或调整 AFE input_format，需要同步修改 input_channels_ 和这段映射。
-        std::vector<int16_t> raw(frames * 4);
+        // ES7210 仍按 4 路 lane 读取。根据 Korvo-1 硬件和 esp-skainet BSP，默认映射为：
+        //   raw[4*i + 0] = Reference
+        //   raw[4*i + 1] = Mic0
+        //   raw[4*i + 2] = Mic1
+        //   raw[4*i + 3] = Mic2
+        // esp-skainet 的 input_format=RMNM 只是表示 AFE 不直接使用 raw[2]，不代表硬件没有第三颗麦。
+        std::vector<int16_t> raw(frames * AUDIO_INPUT_RAW_CHANNELS);
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_read(input_dev_, raw.data(), raw.size() * sizeof(int16_t)));
-        for (int i = 0; i < frames; ++i) {
-            int16_t ref = raw[4 * i + 0];
-            dest[3 * i + 0] = raw[4 * i + 1];
-            dest[3 * i + 1] = raw[4 * i + 3];
-            dest[3 * i + 2] = ref;
+
+        std::vector<int16_t> processed;
+        last_mic_array_result_ = mic_array_processor_.ProcessRaw(
+            raw.data(), raw.size(), processed, static_cast<uint32_t>(esp_timer_get_time() / 1000));
+        if (processed.size() == static_cast<size_t>(samples)) {
+            std::copy(processed.begin(), processed.end(), dest);
+        } else {
+            ESP_LOGW(TAG, "mic array output size mismatch: got=%u expected=%d",
+                     static_cast<unsigned>(processed.size()), samples);
+            for (int i = 0; i < frames; ++i) {
+                dest[input_channels_ * i + 0] = raw[AUDIO_INPUT_RAW_CHANNELS * i + 1];
+                dest[input_channels_ * i + 1] = raw[AUDIO_INPUT_RAW_CHANNELS * i + 0];
+            }
         }
     }
     return samples;
+}
+
+void Korvo1AudioCodec::ResetMicArray() {
+    mic_array_processor_.Reset();
 }
 
 int Korvo1AudioCodec::Write(const int16_t* data, int samples) {

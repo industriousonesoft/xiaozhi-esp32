@@ -5,6 +5,8 @@
 #include <web_socket.h>
 #include <mqtt.h>
 #include <udp.h>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <functional>
 #include <network_interface.h>
@@ -76,6 +78,12 @@ public:
     virtual NetworkInterface* GetNetwork() = 0;
     virtual void StartNetwork() = 0;
     virtual void SetNetworkEventCallback(NetworkEventCallback callback) { (void)callback; }
+    virtual void OnAudioInputFrame(const int16_t* data, size_t samples, int channels, uint32_t timestamp_ms) {
+        (void)data;
+        (void)samples;
+        (void)channels;
+        (void)timestamp_ms;
+    }
     virtual const char* GetNetworkStateIcon() = 0;
     virtual bool GetBatteryLevel(int &level, bool& charging, bool& discharging);
     virtual std::string GetSystemInfoJson();

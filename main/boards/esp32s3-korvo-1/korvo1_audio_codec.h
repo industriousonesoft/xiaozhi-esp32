@@ -2,11 +2,13 @@
 #define _KORVO1_AUDIO_CODEC_H_
 
 #include "audio_codec.h"
+#include "korvo1_mic_array_processor.h"
 
 #include <esp_codec_dev.h>
 #include <esp_codec_dev_defaults.h>
 
 #include <mutex>
+#include <vector>
 
 class Korvo1AudioCodec : public AudioCodec {
 private:
@@ -20,6 +22,8 @@ private:
     esp_codec_dev_handle_t output_dev_ = nullptr;
     esp_codec_dev_handle_t input_dev_ = nullptr;
     std::mutex data_if_mutex_;
+    Korvo1MicArrayProcessor mic_array_processor_;
+    Korvo1MicArrayResult last_mic_array_result_;
 
     void CreateOutputChannel(gpio_num_t mclk, gpio_num_t bclk, gpio_num_t ws, gpio_num_t dout);
     void CreateInputChannel(gpio_num_t mclk, gpio_num_t bclk, gpio_num_t ws, gpio_num_t din);
@@ -37,6 +41,8 @@ public:
     virtual void SetOutputVolume(int volume) override;
     virtual void EnableInput(bool enable) override;
     virtual void EnableOutput(bool enable) override;
+    const Korvo1MicArrayResult& last_mic_array_result() const { return last_mic_array_result_; }
+    void ResetMicArray();
 };
 
 #endif // _KORVO1_AUDIO_CODEC_H_
