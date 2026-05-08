@@ -810,6 +810,22 @@ config USE_AUDIO_PROCESSOR
     help
         Requires ESP32 S3 and PSRAM
 
+config KORVO1_DUAL_MIC_BSS
+    bool "Enable ESP32-S3-Korvo-1 Dual-Mic BSS Input"
+    default y
+    depends on BOARD_TYPE_ESP32S3_KORVO_1 && USE_AUDIO_PROCESSOR
+    help
+        Use Mic0 and Mic1 plus the playback reference as M/M/R input for ESP-SR AFE SE(BSS).
+        When disabled, Korvo-1 keeps the existing three-mic board-level processor and exposes M/R input.
+
+config KORVO1_AFE_PCM_LOCAL_PLAYBACK
+    bool "Play ESP32-S3-Korvo-1 AFE PCM Locally"
+    default n
+    depends on KORVO1_DUAL_MIC_BSS
+    help
+        Route AFE-processed PCM directly to the speaker for acoustic testing.
+        When disabled, the existing Opus encode and server upload path is preserved.
+
 config USE_DEVICE_AEC
     bool "Enable Device-Side AEC"
     default n

@@ -12,6 +12,8 @@ struct Korvo1MicArrayResult {
     uint32_t timestamp_ms = 0;
 };
 
+bool BuildKorvo1DualMicBssInput(const int16_t* raw_data, size_t raw_samples, std::vector<int16_t>& output_mmr);
+
 class Korvo1MicArrayProcessor {
 public:
     Korvo1MicArrayProcessor() = default;

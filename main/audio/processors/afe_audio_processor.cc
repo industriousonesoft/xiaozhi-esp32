@@ -42,6 +42,12 @@ void AfeAudioProcessor::Initialize(AudioCodec* codec, int frame_duration_ms, srm
     afe_config->aec_mode = AEC_MODE_VOIP_HIGH_PERF;
     afe_config->vad_mode = VAD_MODE_0;
     afe_config->vad_min_noise_ms = 100;
+#if CONFIG_KORVO1_DUAL_MIC_BSS
+    // ESP-SR 把麦克风阵列增强称为 SE。M/M/R 输入下打开 SE，
+    // AFE 会先走双麦 BSS，再输出常规 fetch PCM。
+    afe_config->se_init = true;
+    ESP_LOGI(TAG, "Korvo-1 dual-mic SE(BSS) enabled");
+#endif
     if (vad_model_name != nullptr) {
         afe_config->vad_model_name = vad_model_name;
     }

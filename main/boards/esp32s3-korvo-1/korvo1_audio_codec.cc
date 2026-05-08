@@ -266,12 +266,21 @@ void Korvo1AudioCodec::EnableInput(bool enable) {
         };
         ESP_ERROR_CHECK(esp_codec_dev_open(input_dev_, &fs));
 
-        // ES7210 四路 ADC 增益：0/1/3 按麦克风通道给 30 dB，2 作为参考通道置 0 dB。
-        // 这是从 esp-skainet Korvo-1 BSP 继承的通道约定；如果实测通道顺序不同，要同步改这里和 Read()。
+        // ES7210 四路 ADC 增益。默认三麦路径沿用 esp-skainet Korvo-1 BSP 的通道约定；
+        // 双麦 BSS 路径明确使用 raw[1]=Mic0、raw[2]=Mic1、raw[0]=Reference。
+#if CONFIG_KORVO1_DUAL_MIC_BSS
+        // 双麦模式只有 Mic0/Mic1 是声学输入。Reference 和未使用的 Mic2 保持 0 dB，
+        // 避免 AFE 收到 M/M/R 之前先放大回采或空闲 lane。
+        ESP_ERROR_CHECK(esp_codec_dev_set_in_channel_gain(input_dev_, ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0), 0.0));
+        ESP_ERROR_CHECK(esp_codec_dev_set_in_channel_gain(input_dev_, ESP_CODEC_DEV_MAKE_CHANNEL_MASK(1), input_gain_));
+        ESP_ERROR_CHECK(esp_codec_dev_set_in_channel_gain(input_dev_, ESP_CODEC_DEV_MAKE_CHANNEL_MASK(2), input_gain_));
+        ESP_ERROR_CHECK(esp_codec_dev_set_in_channel_gain(input_dev_, ESP_CODEC_DEV_MAKE_CHANNEL_MASK(3), 0.0));
+#else
         ESP_ERROR_CHECK(esp_codec_dev_set_in_channel_gain(input_dev_, ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0), input_gain_));
         ESP_ERROR_CHECK(esp_codec_dev_set_in_channel_gain(input_dev_, ESP_CODEC_DEV_MAKE_CHANNEL_MASK(1), input_gain_));
         ESP_ERROR_CHECK(esp_codec_dev_set_in_channel_gain(input_dev_, ESP_CODEC_DEV_MAKE_CHANNEL_MASK(2), 0.0));
         ESP_ERROR_CHECK(esp_codec_dev_set_in_channel_gain(input_dev_, ESP_CODEC_DEV_MAKE_CHANNEL_MASK(3), input_gain_));
+#endif
     } else {
         ESP_ERROR_CHECK(esp_codec_dev_close(input_dev_));
     }
@@ -315,6 +324,24 @@ int Korvo1AudioCodec::Read(int16_t* dest, int samples) {
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_read(input_dev_, raw.data(), raw.size() * sizeof(int16_t)));
 
         std::vector<int16_t> processed;
+#if CONFIG_KORVO1_DUAL_MIC_BSS
+        // 这里绕过本地三麦 beamformer。AFE SE(BSS) 需要两路原始麦克风，
+        // 不能使用预先混成 mono 的波束形成结果，所以 codec 直接向上暴露 M/M/R。
+        if (BuildKorvo1DualMicBssInput(raw.data(), raw.size(), processed) &&
+            processed.size() == static_cast<size_t>(samples)) {
+            std::copy(processed.begin(), processed.end(), dest);
+            last_mic_array_result_ = {};
+        } else {
+            ESP_LOGW(TAG, "dual-mic BSS input size mismatch: got=%u expected=%d",
+                     static_cast<unsigned>(processed.size()), samples);
+            for (int i = 0; i < frames; ++i) {
+                dest[input_channels_ * i + 0] = raw[AUDIO_INPUT_RAW_CHANNELS * i + 1];
+                dest[input_channels_ * i + 1] = raw[AUDIO_INPUT_RAW_CHANNELS * i + 2];
+                dest[input_channels_ * i + 2] = raw[AUDIO_INPUT_RAW_CHANNELS * i + 0];
+            }
+            last_mic_array_result_ = {};
+        }
+#else
         last_mic_array_result_ = mic_array_processor_.ProcessRaw(
             raw.data(), raw.size(), processed, static_cast<uint32_t>(esp_timer_get_time() / 1000));
         if (processed.size() == static_cast<size_t>(samples)) {
@@ -327,6 +354,7 @@ int Korvo1AudioCodec::Read(int16_t* dest, int samples) {
                 dest[input_channels_ * i + 1] = raw[AUDIO_INPUT_RAW_CHANNELS * i + 0];
             }
         }
+#endif
     }
     return samples;
 }

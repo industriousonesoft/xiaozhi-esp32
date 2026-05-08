@@ -27,6 +27,23 @@ static float RmsOfChannel(const std::vector<int16_t>& data, int channels, int in
 }
 
 int main() {
+    auto dual_mic_raw = MakeRawFrame(2, 100, 1100, 2200, 3300);
+    std::vector<int16_t> dual_mic_output;
+    bool dual_mic_ok = BuildKorvo1DualMicBssInput(dual_mic_raw.data(), dual_mic_raw.size(), dual_mic_output);
+    assert(dual_mic_ok);
+    assert(dual_mic_output.size() == 2 * 3);
+    assert(dual_mic_output[0] == 1100);
+    assert(dual_mic_output[1] == 2200);
+    assert(dual_mic_output[2] == 100);
+    assert(dual_mic_output[3] == 1100);
+    assert(dual_mic_output[4] == 2200);
+    assert(dual_mic_output[5] == 100);
+
+    auto invalid_raw = MakeRawFrame(1, 100, 1100, 2200, 3300);
+    invalid_raw.pop_back();
+    assert(!BuildKorvo1DualMicBssInput(invalid_raw.data(), invalid_raw.size(), dual_mic_output));
+    assert(dual_mic_output.empty());
+
     Korvo1MicArrayProcessor processor;
 
     auto silence = MakeRawFrame(160, 100, 20, 18, 22);

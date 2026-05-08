@@ -74,6 +74,27 @@ int16_t ClampToInt16(float value) {
 }
 } // namespace
 
+bool BuildKorvo1DualMicBssInput(const int16_t* raw_data, size_t raw_samples, std::vector<int16_t>& output_mmr) {
+    output_mmr.clear();
+
+    if (raw_data == nullptr || raw_samples < kRawChannels || raw_samples % kRawChannels != 0) {
+        return false;
+    }
+
+    // AFE BSS 需要两路麦克风后跟一路播放参考。这里单独做 helper，
+    // 方便宿主侧测试固定 ES7210 raw lane 约定：
+    // raw[1]=Mic0 主麦，raw[2]=Mic1 次麦，raw[0]=Reference。
+    const size_t frames = raw_samples / kRawChannels;
+    output_mmr.resize(frames * 3);
+    for (size_t i = 0; i < frames; ++i) {
+        output_mmr[3 * i + 0] = raw_data[kRawChannels * i + kRawMic0Index];
+        output_mmr[3 * i + 1] = raw_data[kRawChannels * i + kRawMic1Index];
+        output_mmr[3 * i + 2] = raw_data[kRawChannels * i + kRawRefIndex];
+    }
+
+    return true;
+}
+
 Korvo1MicArrayProcessor::~Korvo1MicArrayProcessor() {
 #ifdef ESP_PLATFORM
     if (mase_handle_ != nullptr && mase_destory != nullptr) {

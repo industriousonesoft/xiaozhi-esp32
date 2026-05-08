@@ -188,6 +188,7 @@ private:
     void AudioOutputTask();
     void OpusCodecTask();
     void PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t>&& pcm);
+    void PushTaskToPlaybackQueue(std::vector<int16_t>&& pcm, uint32_t timestamp);
     void SetDecodeSampleRate(int sample_rate, int frame_duration);
     void CheckAndUpdateAudioPowerState();
 };

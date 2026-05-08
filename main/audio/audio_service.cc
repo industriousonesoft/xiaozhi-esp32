@@ -100,7 +100,20 @@ void AudioService::Initialize(AudioCodec* codec) {
 #endif
 
     audio_processor_->OnOutput([this](std::vector<int16_t>&& data) {
+#if CONFIG_KORVO1_AFE_PCM_LOCAL_PLAYBACK
+#if CONFIG_USE_AUDIO_DEBUGGER
+        // 本地播放模式下最有价值的抓取点是 AFE/BSS 之后，
+        // 因此 UDP debug 发送处理后的 mono PCM，而不是原始多通道输入。
+        if (audio_debugger_ == nullptr) {
+            audio_debugger_ = std::make_unique<AudioDebugger>();
+        }
+        audio_debugger_->Feed(data);
+#endif
+        // 复用普通扬声器任务，让 ES8311 电源和队列处理与服务器 TTS 播放保持一致。
+        PushTaskToPlaybackQueue(std::move(data), 0);
+#else
         PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
+#endif
     });
 
     audio_processor_->OnVadStateChange([this](bool speaking) {
@@ -220,7 +233,7 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
     Board::GetInstance().OnAudioInputFrame(data.data(), data.size(), codec_->input_channels(),
         static_cast<uint32_t>(esp_timer_get_time() / 1000));
 
-#if CONFIG_USE_AUDIO_DEBUGGER
+#if CONFIG_USE_AUDIO_DEBUGGER && !CONFIG_KORVO1_AFE_PCM_LOCAL_PLAYBACK
     // 音频调试：发送原始音频数据
     if (audio_debugger_ == nullptr) {
         audio_debugger_ = std::make_unique<AudioDebugger>();
@@ -256,10 +269,10 @@ void AudioService::AudioInputTask() {
             std::vector<int16_t> data;
             int samples = OPUS_FRAME_DURATION_MS * 16000 / 1000;
             if (ReadAudioData(data, 16000, samples)) {
-                // If input channels is 2, we need to fetch the left channel data
-                if (codec_->input_channels() == 2) {
-                    auto mono_data = std::vector<int16_t>(data.size() / 2);
-                    for (size_t i = 0, j = 0; i < mono_data.size(); ++i, j += 2) {
+                // Audio testing stores mono Opus frames; keep the first mic channel for multi-channel codecs.
+                if (codec_->input_channels() > 1) {
+                    auto mono_data = std::vector<int16_t>(data.size() / codec_->input_channels());
+                    for (size_t i = 0, j = 0; i < mono_data.size(); ++i, j += codec_->input_channels()) {
                         mono_data[i] = data[j];
                     }
                     data = std::move(mono_data);
@@ -504,6 +517,25 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
 
     audio_queue_cv_.wait(lock, [this]() { return audio_encode_queue_.size() < MAX_ENCODE_TASKS_IN_QUEUE; });
     audio_encode_queue_.push_back(std::move(task));
+    audio_queue_cv_.notify_all();
+}
+
+void AudioService::PushTaskToPlaybackQueue(std::vector<int16_t>&& pcm, uint32_t timestamp) {
+    auto task = std::make_unique<AudioTask>();
+    task->type = kAudioTaskTypeDecodeToPlaybackQueue;
+    task->pcm = std::move(pcm);
+    task->timestamp = timestamp;
+
+    // 使用与服务器解码音频相同的背压限制；如果扬声器路径变慢，
+    // 本地 AFE 回环不能无限堆积播放队列。
+    std::unique_lock<std::mutex> lock(audio_queue_mutex_);
+    audio_queue_cv_.wait(lock, [this]() {
+        return service_stopped_ || audio_playback_queue_.size() < MAX_PLAYBACK_TASKS_IN_QUEUE;
+    });
+    if (service_stopped_) {
+        return;
+    }
+    audio_playback_queue_.push_back(std::move(task));
     audio_queue_cv_.notify_all();
 }
 
