@@ -1,4 +1,5 @@
 #include "audio_service.h"
+#include "audio_service_route.h"
 #include "boards/common/board.h"
 #include <esp_log.h>
 #include <cstring>
@@ -101,19 +102,27 @@ void AudioService::Initialize(AudioCodec* codec) {
 
     audio_processor_->OnOutput([this](std::vector<int16_t>&& data) {
 #if CONFIG_KORVO1_AFE_PCM_LOCAL_PLAYBACK
-#if CONFIG_USE_AUDIO_DEBUGGER
-        // 本地播放模式下最有价值的抓取点是 AFE/BSS 之后，
-        // 因此 UDP debug 发送处理后的 mono PCM，而不是原始多通道输入。
-        if (audio_debugger_ == nullptr) {
-            audio_debugger_ = std::make_unique<AudioDebugger>();
-        }
-        audio_debugger_->Feed(data);
-#endif
-        // 复用普通扬声器任务，让 ES8311 电源和队列处理与服务器 TTS 播放保持一致。
-        PushTaskToPlaybackQueue(std::move(data), 0);
+        constexpr bool compile_time_local_playback = true;
 #else
-        PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
+        constexpr bool compile_time_local_playback = false;
 #endif
+        auto route = SelectAudioProcessorOutputRoute(afe_local_playback_enabled_.load(),
+                                                     compile_time_local_playback);
+        if (route == AudioProcessorOutputRoute::kPlaybackQueue) {
+#if CONFIG_USE_AUDIO_DEBUGGER
+            // 本地播放模式下最有价值的抓取点是 AFE/BSS 之后，
+            // 因此 UDP debug 发送处理后的 mono PCM，而不是原始多通道输入。
+            if (audio_debugger_ == nullptr) {
+                audio_debugger_ = std::make_unique<AudioDebugger>();
+            }
+            audio_debugger_->Feed(data);
+#endif
+            // 复用普通扬声器任务，让 ES8311 电源和队列处理与服务器 TTS 播放保持一致。
+            PushTaskToPlaybackQueue(std::move(data), 0);
+            return;
+        }
+
+        PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
     });
 
     audio_processor_->OnVadStateChange([this](bool speaking) {
@@ -235,10 +244,12 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
 
 #if CONFIG_USE_AUDIO_DEBUGGER && !CONFIG_KORVO1_AFE_PCM_LOCAL_PLAYBACK
     // 音频调试：发送原始音频数据
-    if (audio_debugger_ == nullptr) {
-        audio_debugger_ = std::make_unique<AudioDebugger>();
+    if (!afe_local_playback_enabled_.load()) {
+        if (audio_debugger_ == nullptr) {
+            audio_debugger_ = std::make_unique<AudioDebugger>();
+        }
+        audio_debugger_->Feed(data);
     }
-    audio_debugger_->Feed(data);
 #endif
 
     return true;
@@ -662,6 +673,22 @@ void AudioService::EnableDeviceAec(bool enable) {
     audio_processor_->EnableDeviceAec(enable);
 }
 
+void AudioService::SetAfeLocalPlaybackEnabled(bool enable) {
+    bool previous = afe_local_playback_enabled_.exchange(enable);
+    if (previous == enable) {
+        return;
+    }
+
+    ClearQueuesForAfeRouteSwitch();
+    ESP_LOGI(TAG, "AFE local playback %s", enable ? "enabled" : "disabled");
+}
+
+bool AudioService::ToggleAfeLocalPlayback() {
+    bool enable = !afe_local_playback_enabled_.load();
+    SetAfeLocalPlaybackEnabled(enable);
+    return enable;
+}
+
 void AudioService::SetCallbacks(AudioServiceCallbacks& callbacks) {
     callbacks_ = callbacks;
 }
@@ -710,6 +737,17 @@ void AudioService::ResetDecoder() {
     decoder_lock.unlock();
     timestamp_queue_.clear();
     audio_decode_queue_.clear();
+    audio_playback_queue_.clear();
+    audio_testing_queue_.clear();
+    audio_queue_cv_.notify_all();
+}
+
+void AudioService::ClearQueuesForAfeRouteSwitch() {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    timestamp_queue_.clear();
+    audio_encode_queue_.clear();
+    audio_decode_queue_.clear();
+    audio_send_queue_.clear();
     audio_playback_queue_.clear();
     audio_testing_queue_.clear();
     audio_queue_cv_.notify_all();

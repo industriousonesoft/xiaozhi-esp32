@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <chrono>
 #include <mutex>
+#include <atomic>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -119,11 +120,14 @@ public:
     bool IsWakeWordRunning() const { return xEventGroupGetBits(event_group_) & AS_EVENT_WAKE_WORD_RUNNING; }
     bool IsAudioProcessorRunning() const { return xEventGroupGetBits(event_group_) & AS_EVENT_AUDIO_PROCESSOR_RUNNING; }
     bool IsAfeWakeWord();
+    bool IsAfeLocalPlaybackEnabled() const { return afe_local_playback_enabled_.load(); }
 
     void EnableWakeWordDetection(bool enable);
     void EnableVoiceProcessing(bool enable);
     void EnableAudioTesting(bool enable);
     void EnableDeviceAec(bool enable);
+    void SetAfeLocalPlaybackEnabled(bool enable);
+    bool ToggleAfeLocalPlayback();
 
     void SetCallbacks(AudioServiceCallbacks& callbacks);
 
@@ -179,6 +183,7 @@ private:
     bool voice_detected_ = false;
     bool service_stopped_ = true;
     bool audio_input_need_warmup_ = false;
+    std::atomic_bool afe_local_playback_enabled_ = false;
 
     esp_timer_handle_t audio_power_timer_ = nullptr;
     std::chrono::steady_clock::time_point last_input_time_;
@@ -191,6 +196,7 @@ private:
     void PushTaskToPlaybackQueue(std::vector<int16_t>&& pcm, uint32_t timestamp);
     void SetDecodeSampleRate(int sample_rate, int frame_duration);
     void CheckAndUpdateAudioPowerState();
+    void ClearQueuesForAfeRouteSwitch();
 };
 
 #endif

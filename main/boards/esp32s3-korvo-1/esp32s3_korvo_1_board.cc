@@ -6,6 +6,8 @@
 #include "config.h"
 
 #include <driver/i2c_master.h>
+#include <esp_adc/adc_oneshot.h>
+#include <esp_idf_version.h>
 #include <esp_log.h>
 
 #include <algorithm>
@@ -14,9 +16,23 @@
 
 #define TAG "esp32s3_korvo_1"
 
+typedef enum {
+    BSP_ADC_BUTTON_REC,
+    BSP_ADC_BUTTON_MODE,
+    BSP_ADC_BUTTON_PLAY,
+    BSP_ADC_BUTTON_SET,
+    BSP_ADC_BUTTON_VOL_DOWN,
+    BSP_ADC_BUTTON_VOL_UP,
+    BSP_ADC_BUTTON_NUM
+} bsp_adc_button_t;
+
 class Esp32S3Korvo1Board : public WifiBoard {
 private:
     Button boot_button_;
+    Button* adc_button_[BSP_ADC_BUTTON_NUM] = {};
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    adc_oneshot_unit_handle_t adc_handle_ = nullptr;
+#endif
     i2c_master_bus_handle_t i2c_bus_ = nullptr;
     CircularStrip led_;
     bool source_led_active_ = false;
@@ -40,6 +56,52 @@ private:
     }
 
     void InitializeButtons() {
+        button_adc_config_t adc_cfg = {};
+        adc_cfg.unit_id = ADC_UNIT_1;
+        adc_cfg.adc_channel = ADC_CHANNEL_7; // GPIO8
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+        const adc_oneshot_unit_init_cfg_t init_config = {
+            .unit_id = ADC_UNIT_1,
+        };
+        ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config, &adc_handle_));
+        adc_cfg.adc_handle = &adc_handle_;
+#endif
+        adc_cfg.button_index = BSP_ADC_BUTTON_REC;
+        adc_cfg.min = 2310;
+        adc_cfg.max = 2510;
+        adc_button_[BSP_ADC_BUTTON_REC] = new AdcButton(adc_cfg);
+
+        adc_cfg.button_index = BSP_ADC_BUTTON_MODE;
+        adc_cfg.min = 1880;
+        adc_cfg.max = 2080;
+        adc_button_[BSP_ADC_BUTTON_MODE] = new AdcButton(adc_cfg);
+
+        adc_cfg.button_index = BSP_ADC_BUTTON_PLAY;
+        adc_cfg.min = 1550;
+        adc_cfg.max = 1750;
+        adc_button_[BSP_ADC_BUTTON_PLAY] = new AdcButton(adc_cfg);
+
+        adc_cfg.button_index = BSP_ADC_BUTTON_SET;
+        adc_cfg.min = 1015;
+        adc_cfg.max = 1215;
+        adc_button_[BSP_ADC_BUTTON_SET] = new AdcButton(adc_cfg);
+
+        adc_cfg.button_index = BSP_ADC_BUTTON_VOL_DOWN;
+        adc_cfg.min = 720;
+        adc_cfg.max = 920;
+        adc_button_[BSP_ADC_BUTTON_VOL_DOWN] = new AdcButton(adc_cfg);
+
+        adc_cfg.button_index = BSP_ADC_BUTTON_VOL_UP;
+        adc_cfg.min = 280;
+        adc_cfg.max = 480;
+        adc_button_[BSP_ADC_BUTTON_VOL_UP] = new AdcButton(adc_cfg);
+
+        auto set_button = adc_button_[BSP_ADC_BUTTON_SET];
+        set_button->OnClick([this]() {
+            bool enabled = Application::GetInstance().GetAudioService().ToggleAfeLocalPlayback();
+            ESP_LOGI(TAG, "AFE local playback test mode: %s", enabled ? "enabled" : "disabled");
+        });
+
         boot_button_.OnClick([this]() {
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting) {
