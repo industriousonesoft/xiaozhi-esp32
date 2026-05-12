@@ -16,9 +16,8 @@ struct PcmGainResult {
     uint32_t clipped_samples = 0;
 };
 
-inline AudioProcessorOutputRoute SelectAudioProcessorOutputRoute(bool runtime_local_playback,
-                                                                 bool compile_time_local_playback) {
-    return (runtime_local_playback || compile_time_local_playback)
+inline AudioProcessorOutputRoute SelectAudioProcessorOutputRoute(bool runtime_local_playback) {
+    return runtime_local_playback
         ? AudioProcessorOutputRoute::kPlaybackQueue
         : AudioProcessorOutputRoute::kEncodeToSendQueue;
 }

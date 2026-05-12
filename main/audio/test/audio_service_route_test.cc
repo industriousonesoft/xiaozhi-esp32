@@ -5,10 +5,8 @@
 #include <vector>
 
 int main() {
-    assert(SelectAudioProcessorOutputRoute(false, false) == AudioProcessorOutputRoute::kEncodeToSendQueue);
-    assert(SelectAudioProcessorOutputRoute(true, false) == AudioProcessorOutputRoute::kPlaybackQueue);
-    assert(SelectAudioProcessorOutputRoute(false, true) == AudioProcessorOutputRoute::kPlaybackQueue);
-    assert(SelectAudioProcessorOutputRoute(true, true) == AudioProcessorOutputRoute::kPlaybackQueue);
+    assert(SelectAudioProcessorOutputRoute(false) == AudioProcessorOutputRoute::kEncodeToSendQueue);
+    assert(SelectAudioProcessorOutputRoute(true) == AudioProcessorOutputRoute::kPlaybackQueue);
 
     std::vector<int16_t> pcm = {10, -20, 20000, -20000, 0};
     auto result = ApplyPcmGainForLocalPlayback(pcm, 2);

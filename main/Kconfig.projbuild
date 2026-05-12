@@ -818,14 +818,6 @@ config KORVO1_DUAL_MIC_BSS
         Use Mic0 and Mic1 plus the playback reference as M/M/R input for ESP-SR AFE SE(BSS).
         When disabled, Korvo-1 keeps the existing three-mic board-level processor and exposes M/R input.
 
-config KORVO1_AFE_PCM_LOCAL_PLAYBACK
-    bool "Play ESP32-S3-Korvo-1 AFE PCM Locally"
-    default n
-    depends on KORVO1_DUAL_MIC_BSS
-    help
-        Route AFE-processed PCM directly to the speaker for acoustic testing.
-        When disabled, the existing Opus encode and server upload path is preserved.
-
 config KORVO1_AFE_PCM_LOCAL_PLAYBACK_GAIN_DB
     int "ESP32-S3-Korvo-1 AFE local playback gain in dB"
     range 0 48

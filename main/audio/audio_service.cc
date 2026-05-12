@@ -6,7 +6,7 @@
 #include <cstring>
 
 #ifndef CONFIG_KORVO1_AFE_PCM_LOCAL_PLAYBACK_GAIN_DB
-#define CONFIG_KORVO1_AFE_PCM_LOCAL_PLAYBACK_GAIN_DB 0
+#define CONFIG_KORVO1_AFE_PCM_LOCAL_PLAYBACK_GAIN_DB 48
 #endif
 
 #define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)        \
@@ -120,13 +120,7 @@ void AudioService::Initialize(AudioCodec* codec) {
 #endif
 
     audio_processor_->OnOutput([this](std::vector<int16_t>&& data) {
-#if CONFIG_KORVO1_AFE_PCM_LOCAL_PLAYBACK
-        constexpr bool compile_time_local_playback = true;
-#else
-        constexpr bool compile_time_local_playback = false;
-#endif
-        auto route = SelectAudioProcessorOutputRoute(afe_local_playback_enabled_.load(),
-                                                     compile_time_local_playback);
+        auto route = SelectAudioProcessorOutputRoute(afe_local_playback_enabled_.load());
         if (route == AudioProcessorOutputRoute::kPlaybackQueue) {
 #if CONFIG_USE_AUDIO_DEBUGGER
             // 本地播放模式下最有价值的抓取点是 AFE/BSS 之后，
@@ -271,7 +265,7 @@ bool AudioService::ReadAudioData(std::vector<int16_t>& data, int sample_rate, in
     Board::GetInstance().OnAudioInputFrame(data.data(), data.size(), codec_->input_channels(),
         static_cast<uint32_t>(esp_timer_get_time() / 1000));
 
-#if CONFIG_USE_AUDIO_DEBUGGER && !CONFIG_KORVO1_AFE_PCM_LOCAL_PLAYBACK
+#if CONFIG_USE_AUDIO_DEBUGGER
     // 音频调试：发送原始音频数据
     if (!afe_local_playback_enabled_.load()) {
         if (audio_debugger_ == nullptr) {

@@ -1,9 +1,11 @@
 #include "wifi_board.h"
 #include "korvo1_audio_codec.h"
 #include "led/circular_strip.h"
+#include "display/display.h"
 #include "application.h"
 #include "button.h"
 #include "config.h"
+#include "assets/lang_config.h"
 
 #include <driver/i2c_master.h>
 #include <esp_adc/adc_oneshot.h>
@@ -55,6 +57,14 @@ private:
         ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_bus_cfg, &i2c_bus_));
     }
 
+    void ChangeVolume(int delta) {
+        auto codec = GetAudioCodec();
+        int volume = codec->output_volume() + delta;
+        volume = std::max(0, std::min(volume, 100));
+        codec->SetOutputVolume(volume);
+        GetDisplay()->ShowNotification(Lang::Strings::VOLUME + std::to_string(volume));
+    }
+
     void InitializeButtons() {
         button_adc_config_t adc_cfg = {};
         adc_cfg.unit_id = ADC_UNIT_1;
@@ -95,6 +105,24 @@ private:
         adc_cfg.min = 280;
         adc_cfg.max = 480;
         adc_button_[BSP_ADC_BUTTON_VOL_UP] = new AdcButton(adc_cfg);
+
+        auto volume_up_button = adc_button_[BSP_ADC_BUTTON_VOL_UP];
+        volume_up_button->OnClick([this]() {
+            ChangeVolume(10);
+        });
+        volume_up_button->OnLongPress([this]() {
+            GetAudioCodec()->SetOutputVolume(100);
+            GetDisplay()->ShowNotification(Lang::Strings::MAX_VOLUME);
+        });
+
+        auto volume_down_button = adc_button_[BSP_ADC_BUTTON_VOL_DOWN];
+        volume_down_button->OnClick([this]() {
+            ChangeVolume(-10);
+        });
+        volume_down_button->OnLongPress([this]() {
+            GetAudioCodec()->SetOutputVolume(0);
+            GetDisplay()->ShowNotification(Lang::Strings::MUTED);
+        });
 
         auto set_button = adc_button_[BSP_ADC_BUTTON_SET];
         set_button->OnClick([this]() {
