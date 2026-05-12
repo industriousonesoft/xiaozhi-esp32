@@ -2,7 +2,12 @@
 #include "audio_service_route.h"
 #include "boards/common/board.h"
 #include <esp_log.h>
+#include <cmath>
 #include <cstring>
+
+#ifndef CONFIG_KORVO1_AFE_PCM_LOCAL_PLAYBACK_GAIN_DB
+#define CONFIG_KORVO1_AFE_PCM_LOCAL_PLAYBACK_GAIN_DB 0
+#endif
 
 #define RATE_CVT_CFG(_src_rate, _dest_rate, _channel)        \
     (esp_ae_rate_cvt_cfg_t)                                  \
@@ -123,11 +128,6 @@ void AudioService::Initialize(AudioCodec* codec) {
         auto route = SelectAudioProcessorOutputRoute(afe_local_playback_enabled_.load(),
                                                      compile_time_local_playback);
         if (route == AudioProcessorOutputRoute::kPlaybackQueue) {
-            static uint32_t local_playback_frame_count = 0;
-            if ((local_playback_frame_count++ % 16) == 0) {
-                ESP_LOGI(TAG, "AFE local playback input frame: samples=%u peak=%d output_enabled=%d",
-                         static_cast<unsigned>(data.size()), GetPcmPeak(data), codec_->output_enabled());
-            }
 #if CONFIG_USE_AUDIO_DEBUGGER
             // 本地播放模式下最有价值的抓取点是 AFE/BSS 之后，
             // 因此 UDP debug 发送处理后的 mono PCM，而不是原始多通道输入。
@@ -136,6 +136,16 @@ void AudioService::Initialize(AudioCodec* codec) {
             }
             audio_debugger_->Feed(data);
 #endif
+            const float local_playback_gain = std::pow(10.0f, CONFIG_KORVO1_AFE_PCM_LOCAL_PLAYBACK_GAIN_DB / 20.0f);
+            auto gain_result = ApplyPcmGainForLocalPlayback(data, local_playback_gain);
+            static uint32_t local_playback_frame_count = 0;
+            if ((local_playback_frame_count++ % 16) == 0) {
+                ESP_LOGI(TAG, "AFE local playback input frame: samples=%u peak_before=%d peak_after=%d gain_db=%d clipped=%u output_enabled=%d output_volume=%d",
+                         static_cast<unsigned>(data.size()), gain_result.peak_before, gain_result.peak_after,
+                         CONFIG_KORVO1_AFE_PCM_LOCAL_PLAYBACK_GAIN_DB,
+                         static_cast<unsigned>(gain_result.clipped_samples),
+                         codec_->output_enabled(), codec_->output_volume());
+            }
             // 复用普通扬声器任务，让 ES8311 电源和队列处理与服务器 TTS 播放保持一致。
             PushTaskToPlaybackQueue(std::move(data), 0);
             return;

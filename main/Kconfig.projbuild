@@ -826,6 +826,15 @@ config KORVO1_AFE_PCM_LOCAL_PLAYBACK
         Route AFE-processed PCM directly to the speaker for acoustic testing.
         When disabled, the existing Opus encode and server upload path is preserved.
 
+config KORVO1_AFE_PCM_LOCAL_PLAYBACK_GAIN_DB
+    int "ESP32-S3-Korvo-1 AFE local playback gain in dB"
+    range 0 48
+    default 24
+    depends on KORVO1_DUAL_MIC_BSS
+    help
+        Apply gain only to AFE local playback test PCM before it is queued to the speaker.
+        This does not affect server upload audio or normal TTS/prompt playback.
+
 config USE_DEVICE_AEC
     bool "Enable Device-Side AEC"
     default n

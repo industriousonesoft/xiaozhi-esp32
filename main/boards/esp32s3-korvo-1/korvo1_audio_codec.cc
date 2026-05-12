@@ -365,7 +365,13 @@ void Korvo1AudioCodec::ResetMicArray() {
 
 int Korvo1AudioCodec::Write(const int16_t* data, int samples) {
     if (output_enabled_) {
-        ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_write(output_dev_, (void*)data, samples * sizeof(int16_t)));
+        int bytes = samples * sizeof(int16_t);
+        esp_err_t ret = esp_codec_dev_write(output_dev_, (void*)data, bytes);
+        static uint32_t write_count = 0;
+        if (ret != ESP_OK || (write_count++ % 64) == 0) {
+            ESP_LOGI(TAG, "output write: samples=%d bytes=%d ret=%s", samples, bytes, esp_err_to_name(ret));
+        }
+        ESP_ERROR_CHECK_WITHOUT_ABORT(ret);
     }
     return samples;
 }
