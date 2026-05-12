@@ -39,6 +39,20 @@
 
 #define TAG "AudioService"
 
+static int GetPcmPeak(const std::vector<int16_t>& data) {
+    int peak = 0;
+    for (int16_t sample : data) {
+        int value = sample;
+        if (value < 0) {
+            value = -value;
+        }
+        if (value > peak) {
+            peak = value;
+        }
+    }
+    return peak;
+}
+
 AudioService::AudioService() {
     event_group_ = xEventGroupCreate();
 }
@@ -109,6 +123,11 @@ void AudioService::Initialize(AudioCodec* codec) {
         auto route = SelectAudioProcessorOutputRoute(afe_local_playback_enabled_.load(),
                                                      compile_time_local_playback);
         if (route == AudioProcessorOutputRoute::kPlaybackQueue) {
+            static uint32_t local_playback_frame_count = 0;
+            if ((local_playback_frame_count++ % 16) == 0) {
+                ESP_LOGI(TAG, "AFE local playback input frame: samples=%u peak=%d output_enabled=%d",
+                         static_cast<unsigned>(data.size()), GetPcmPeak(data), codec_->output_enabled());
+            }
 #if CONFIG_USE_AUDIO_DEBUGGER
             // 本地播放模式下最有价值的抓取点是 AFE/BSS 之后，
             // 因此 UDP debug 发送处理后的 mono PCM，而不是原始多通道输入。
@@ -335,6 +354,13 @@ void AudioService::AudioOutputTask() {
         }
 
         codec_->OutputData(task->pcm);
+        if (task->type == kAudioTaskTypeAfeLocalPlayback) {
+            static uint32_t local_playback_output_count = 0;
+            if ((local_playback_output_count++ % 16) == 0) {
+                ESP_LOGI(TAG, "AFE local playback output frame: samples=%u peak=%d",
+                         static_cast<unsigned>(task->pcm.size()), GetPcmPeak(task->pcm));
+            }
+        }
 
         /* Update the last output time */
         last_output_time_ = std::chrono::steady_clock::now();
@@ -533,7 +559,7 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
 
 void AudioService::PushTaskToPlaybackQueue(std::vector<int16_t>&& pcm, uint32_t timestamp) {
     auto task = std::make_unique<AudioTask>();
-    task->type = kAudioTaskTypeDecodeToPlaybackQueue;
+    task->type = kAudioTaskTypeAfeLocalPlayback;
     task->pcm = std::move(pcm);
     task->timestamp = timestamp;
 
