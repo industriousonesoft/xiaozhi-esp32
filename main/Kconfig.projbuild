@@ -829,7 +829,7 @@ config KORVO1_AFE_PCM_LOCAL_PLAYBACK
 config KORVO1_AFE_PCM_LOCAL_PLAYBACK_GAIN_DB
     int "ESP32-S3-Korvo-1 AFE local playback gain in dB"
     range 0 48
-    default 24
+    default 48
     depends on KORVO1_DUAL_MIC_BSS
     help
         Apply gain only to AFE local playback test PCM before it is queued to the speaker.

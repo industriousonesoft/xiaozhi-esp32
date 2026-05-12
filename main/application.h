@@ -102,6 +102,7 @@ public:
      * Sends MAIN_EVENT_STOP_LISTENING to be handled in Run()
      */
     void StopListening();
+    void ToggleAfeLocalPlaybackMode();
 
     void Reboot();
     void WakeWordInvoke(const std::string& wake_word);

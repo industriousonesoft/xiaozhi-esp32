@@ -98,7 +98,9 @@ private:
 
         auto set_button = adc_button_[BSP_ADC_BUTTON_SET];
         set_button->OnClick([this]() {
-            bool enabled = Application::GetInstance().GetAudioService().ToggleAfeLocalPlayback();
+            auto& app = Application::GetInstance();
+            app.ToggleAfeLocalPlaybackMode();
+            bool enabled = app.GetAudioService().IsAfeLocalPlaybackEnabled();
             ESP_LOGI(TAG, "AFE local playback test mode: %s", enabled ? "enabled" : "disabled");
         });
 

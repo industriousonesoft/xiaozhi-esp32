@@ -671,6 +671,37 @@ void Application::StopListening() {
     xEventGroupSetBits(event_group_, MAIN_EVENT_STOP_LISTENING);
 }
 
+void Application::ToggleAfeLocalPlaybackMode() {
+    bool enable = !audio_service_.IsAfeLocalPlaybackEnabled();
+    ESP_LOGI(TAG, "Switching AFE local playback mode %s", enable ? "on" : "off");
+
+    if (enable) {
+        auto state = GetDeviceState();
+        if (state == kDeviceStateSpeaking) {
+            AbortSpeaking(kAbortReasonNone);
+        } else if (state == kDeviceStateListening && protocol_) {
+            protocol_->SendStopListening();
+        }
+        if (state == kDeviceStateConnecting || state == kDeviceStateListening || state == kDeviceStateSpeaking) {
+            SetDeviceState(kDeviceStateIdle);
+        }
+
+        audio_service_.EnableWakeWordDetection(false);
+        audio_service_.SetAfeLocalPlaybackEnabled(true);
+        audio_service_.EnableVoiceProcessing(true);
+        return;
+    }
+
+    audio_service_.SetAfeLocalPlaybackEnabled(false);
+    audio_service_.EnableVoiceProcessing(false);
+
+    auto state = GetDeviceState();
+    if (state != kDeviceStateIdle && state != kDeviceStateUnknown) {
+        SetDeviceState(kDeviceStateIdle);
+    }
+    audio_service_.EnableWakeWordDetection(true);
+}
+
 void Application::HandleToggleChatEvent() {
     auto state = GetDeviceState();
     
@@ -857,6 +888,12 @@ void Application::HandleStateChangedEvent() {
     auto display = board.GetDisplay();
     auto led = board.GetLed();
     led->OnStateChanged();
+
+    if (audio_service_.IsAfeLocalPlaybackEnabled()) {
+        audio_service_.EnableWakeWordDetection(false);
+        audio_service_.EnableVoiceProcessing(true);
+        return;
+    }
     
     switch (new_state) {
         case kDeviceStateUnknown:
@@ -1113,4 +1150,3 @@ void Application::ResetProtocol() {
         protocol_.reset();
     });
 }
-
