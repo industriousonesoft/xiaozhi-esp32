@@ -4,7 +4,6 @@
 #include "application.h"
 #include "button.h"
 #include "config.h"
-#include "assets/lang_config.h"
 
 #include <driver/i2c_master.h>
 #include <esp_adc/adc_oneshot.h>
@@ -97,14 +96,12 @@ private:
         volume_up_button->OnClick([this]() { ChangeVol(10); });
         volume_up_button->OnLongPress([this]() {
             GetAudioCodec()->SetOutputVolume(100);
-            GetDisplay()->ShowNotification(Lang::Strings::MAX_VOLUME);
         });
 
         auto volume_down_button = adc_button_[BSP_ADC_BUTTON_VOL_DOWN];
         volume_down_button->OnClick([this]() { ChangeVol(-10); });
         volume_down_button->OnLongPress([this]() {
             GetAudioCodec()->SetOutputVolume(0);
-            GetDisplay()->ShowNotification(Lang::Strings::MUTED);
         });
 
         auto volume_mode_button = adc_button_[BSP_ADC_BUTTON_VOL_MODE];
@@ -148,7 +145,6 @@ private:
             volume = 0;
         }
         codec->SetOutputVolume(volume);
-        GetDisplay()->ShowNotification(Lang::Strings::VOLUME + std::to_string(volume));
     }
 
     void ToggleAecMode() {
