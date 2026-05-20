@@ -4,8 +4,10 @@
 #include "application.h"
 #include "button.h"
 #include "config.h"
+#include "assets/lang_config.h"
 
 #include <driver/i2c_master.h>
+#include <esp_adc/adc_oneshot.h>
 #include <esp_log.h>
 
 #include <algorithm>
@@ -14,9 +16,21 @@
 
 #define TAG "esp32s3_korvo_1"
 
+typedef enum {
+    BSP_ADC_BUTTON_REC,
+    BSP_ADC_BUTTON_VOL_MODE,
+    BSP_ADC_BUTTON_PLAY,
+    BSP_ADC_BUTTON_SET,
+    BSP_ADC_BUTTON_VOL_DOWN,
+    BSP_ADC_BUTTON_VOL_UP,
+    BSP_ADC_BUTTON_NUM
+} bsp_adc_button_t;
+
 class Esp32S3Korvo1Board : public WifiBoard {
 private:
     Button boot_button_;
+    Button* adc_button_[BSP_ADC_BUTTON_NUM];
+    adc_oneshot_unit_handle_t bsp_adc_handle = NULL;
     i2c_master_bus_handle_t i2c_bus_ = nullptr;
     CircularStrip led_;
     bool source_led_active_ = false;
@@ -40,6 +54,77 @@ private:
     }
 
     void InitializeButtons() {
+        button_adc_config_t adc_cfg = {};
+        adc_cfg.unit_id = ADC_UNIT_1;
+        adc_cfg.adc_channel = ADC_CHANNEL_7; // GPIO8
+        const adc_oneshot_unit_init_cfg_t init_config1 = {
+            .unit_id = ADC_UNIT_1,
+        };
+        ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &bsp_adc_handle));
+        adc_cfg.adc_handle = &bsp_adc_handle;
+
+        adc_cfg.button_index = BSP_ADC_BUTTON_REC;
+        adc_cfg.min = 2310; // middle is 2410mV
+        adc_cfg.max = 2510;
+        adc_button_[BSP_ADC_BUTTON_REC] = new AdcButton(adc_cfg);
+
+        adc_cfg.button_index = BSP_ADC_BUTTON_VOL_MODE;
+        adc_cfg.min = 1880; // middle is 1980mV
+        adc_cfg.max = 2080;
+        adc_button_[BSP_ADC_BUTTON_VOL_MODE] = new AdcButton(adc_cfg);
+
+        adc_cfg.button_index = BSP_ADC_BUTTON_PLAY;
+        adc_cfg.min = 1550; // middle is 1650mV
+        adc_cfg.max = 1750;
+        adc_button_[BSP_ADC_BUTTON_PLAY] = new AdcButton(adc_cfg);
+
+        adc_cfg.button_index = BSP_ADC_BUTTON_SET;
+        adc_cfg.min = 1015; // middle is 1115mV
+        adc_cfg.max = 1215;
+        adc_button_[BSP_ADC_BUTTON_SET] = new AdcButton(adc_cfg);
+
+        adc_cfg.button_index = BSP_ADC_BUTTON_VOL_DOWN;
+        adc_cfg.min = 720; // middle is 820mV
+        adc_cfg.max = 920;
+        adc_button_[BSP_ADC_BUTTON_VOL_DOWN] = new AdcButton(adc_cfg);
+
+        adc_cfg.button_index = BSP_ADC_BUTTON_VOL_UP;
+        adc_cfg.min = 280; // middle is 380mV
+        adc_cfg.max = 480;
+        adc_button_[BSP_ADC_BUTTON_VOL_UP] = new AdcButton(adc_cfg);
+
+        auto volume_up_button = adc_button_[BSP_ADC_BUTTON_VOL_UP];
+        volume_up_button->OnClick([this]() { ChangeVol(10); });
+        volume_up_button->OnLongPress([this]() {
+            GetAudioCodec()->SetOutputVolume(100);
+            GetDisplay()->ShowNotification(Lang::Strings::MAX_VOLUME);
+        });
+
+        auto volume_down_button = adc_button_[BSP_ADC_BUTTON_VOL_DOWN];
+        volume_down_button->OnClick([this]() { ChangeVol(-10); });
+        volume_down_button->OnLongPress([this]() {
+            GetAudioCodec()->SetOutputVolume(0);
+            GetDisplay()->ShowNotification(Lang::Strings::MUTED);
+        });
+
+        auto volume_mode_button = adc_button_[BSP_ADC_BUTTON_VOL_MODE];
+        volume_mode_button->OnClick([this]() { ToggleAecMode(); });
+
+        auto play_button = adc_button_[BSP_ADC_BUTTON_PLAY];
+        play_button->OnClick([this]() {
+            ESP_LOGI(TAG, " TODO %s:%d\n", __func__, __LINE__);
+        });
+
+        auto set_button = adc_button_[BSP_ADC_BUTTON_SET];
+        set_button->OnClick([this]() {
+            EnterWifiConfigMode();
+        });
+
+        auto rec_button = adc_button_[BSP_ADC_BUTTON_REC];
+        rec_button->OnClick([this]() {
+            Application::GetInstance().ToggleChatState();
+        });
+
         boot_button_.OnClick([this]() {
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting) {
@@ -51,6 +136,28 @@ private:
         boot_button_.OnLongPress([this]() {
             EnterWifiConfigMode();
         });
+    }
+
+    void ChangeVol(int val) {
+        auto codec = GetAudioCodec();
+        auto volume = codec->output_volume() + val;
+        if (volume > 100) {
+            volume = 100;
+        }
+        if (volume < 0) {
+            volume = 0;
+        }
+        codec->SetOutputVolume(volume);
+        GetDisplay()->ShowNotification(Lang::Strings::VOLUME + std::to_string(volume));
+    }
+
+    void ToggleAecMode() {
+#if CONFIG_USE_DEVICE_AEC
+        auto& app = Application::GetInstance();
+        app.SetAecMode(app.GetAecMode() == kAecOff ? kAecOnDeviceSide : kAecOff);
+#else
+        ESP_LOGI(TAG, "Device AEC is disabled");
+#endif
     }
 
     bool ShouldShowSourceDirection() {
