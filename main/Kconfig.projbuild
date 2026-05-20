@@ -807,6 +807,15 @@ config USE_AUDIO_PROCESSOR
     help
         Requires ESP32 S3 and PSRAM
 
+config LOCAL_AFE_PLAYBACK_GAIN
+    int "Local AFE Playback Gain"
+    default 4
+    range 1 16
+    depends on USE_AUDIO_PROCESSOR
+    help
+        PCM gain multiplier for local AFE playback. 1 means no amplification.
+        This only affects local playback and does not change server audio upload.
+
 config USE_DEVICE_AEC
     bool "Enable Device-Side AEC"
     default n

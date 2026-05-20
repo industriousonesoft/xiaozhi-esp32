@@ -38,6 +38,23 @@
 
 #define TAG "AudioService"
 
+#ifndef CONFIG_LOCAL_AFE_PLAYBACK_GAIN
+#define CONFIG_LOCAL_AFE_PLAYBACK_GAIN 1
+#endif
+
+namespace {
+int16_t SaturatingMultiply(int16_t sample, int gain) {
+    int32_t amplified = static_cast<int32_t>(sample) * gain;
+    if (amplified > 32767) {
+        return 32767;
+    }
+    if (amplified < -32768) {
+        return -32768;
+    }
+    return static_cast<int16_t>(amplified);
+}
+} // namespace
+
 AudioService::AudioService() {
     event_group_ = xEventGroupCreate();
 }
@@ -514,6 +531,11 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
 void AudioService::PushTaskToPlaybackQueue(std::vector<int16_t>&& pcm) {
     auto task = std::make_unique<AudioTask>();
     task->type = kAudioTaskTypeDecodeToPlaybackQueue;
+#if CONFIG_LOCAL_AFE_PLAYBACK_GAIN > 1
+    for (auto& sample : pcm) {
+        sample = SaturatingMultiply(sample, CONFIG_LOCAL_AFE_PLAYBACK_GAIN);
+    }
+#endif
     task->pcm = std::move(pcm);
 
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
