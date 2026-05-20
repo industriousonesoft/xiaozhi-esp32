@@ -48,10 +48,18 @@ int main() {
     auto side = MakeRawFrame(160, -123, 700, 1800, 3600);
     Korvo1MicArrayProcessor side_processor;
     auto side_result = side_processor.ProcessRaw(side.data(), side.size(), output, 20);
-    assert(side_result.active);
-    assert(side_result.confidence > 0.2f);
-    assert(RmsOfChannel(output, 2, 0) > 1800.0f);
+    assert(!side_result.active);
+    assert(side_result.confidence < 0.2f);
+    assert(RmsOfChannel(output, 2, 0) < 1400.0f);
     assert(output[1] == -123);
+
+    auto mic1 = MakeRawFrame(160, 456, 3600, 900, 800);
+    Korvo1MicArrayProcessor mic1_processor;
+    auto mic1_result = mic1_processor.ProcessRaw(mic1.data(), mic1.size(), output, 30);
+    assert(mic1_result.active);
+    assert(mic1_result.confidence > 0.2f);
+    assert(RmsOfChannel(output, 2, 0) > 2600.0f);
+    assert(output[1] == 456);
 
     return 0;
 }
