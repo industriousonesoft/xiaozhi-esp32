@@ -84,6 +84,11 @@ void Application::Initialize() {
         xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
     };
     audio_service_.SetCallbacks(callbacks);
+    if (board.DefaultLocalAfePlayback()) {
+        audio_service_.SetAudioRouteMode(AudioRouteMode::kLocalPlayback);
+        audio_service_.EnableVoiceProcessing(true);
+        audio_service_.EnableWakeWordDetection(false);
+    }
 
     // Add state change listeners
     state_machine_.AddStateChangeListener([this](DeviceState old_state, DeviceState new_state) {
@@ -178,6 +183,7 @@ void Application::Run() {
         MAIN_EVENT_TOGGLE_CHAT |
         MAIN_EVENT_START_LISTENING |
         MAIN_EVENT_STOP_LISTENING |
+        MAIN_EVENT_TOGGLE_AUDIO_LINK |
         MAIN_EVENT_ACTIVATION_DONE |
         MAIN_EVENT_STATE_CHANGED;
 
@@ -215,6 +221,10 @@ void Application::Run() {
 
         if (bits & MAIN_EVENT_STOP_LISTENING) {
             HandleStopListeningEvent();
+        }
+
+        if (bits & MAIN_EVENT_TOGGLE_AUDIO_LINK) {
+            HandleToggleAudioLinkEvent();
         }
 
         if (bits & MAIN_EVENT_SEND_AUDIO) {
@@ -671,6 +681,10 @@ void Application::StopListening() {
     xEventGroupSetBits(event_group_, MAIN_EVENT_STOP_LISTENING);
 }
 
+void Application::ToggleAudioLinkMode() {
+    xEventGroupSetBits(event_group_, MAIN_EVENT_TOGGLE_AUDIO_LINK);
+}
+
 void Application::HandleToggleChatEvent() {
     auto state = GetDeviceState();
     
@@ -773,6 +787,40 @@ void Application::HandleStopListeningEvent() {
     }
 }
 
+void Application::HandleToggleAudioLinkEvent() {
+    if (audio_service_.GetAudioRouteMode() == AudioRouteMode::kLocalPlayback) {
+        EnterServerAudioMode();
+    } else {
+        EnterLocalAfePlaybackMode();
+    }
+}
+
+void Application::EnterLocalAfePlaybackMode() {
+    ESP_LOGI(TAG, "Switching to local AFE playback mode");
+    aborted_ = true;
+    play_popup_on_listening_ = false;
+
+    if (protocol_ && protocol_->IsAudioChannelOpened()) {
+        protocol_->CloseAudioChannel();
+    }
+
+    audio_service_.SetAudioRouteMode(AudioRouteMode::kLocalPlayback);
+    audio_service_.EnableWakeWordDetection(false);
+    audio_service_.EnableVoiceProcessing(true);
+
+    if (GetDeviceState() == kDeviceStateListening || GetDeviceState() == kDeviceStateSpeaking ||
+        GetDeviceState() == kDeviceStateConnecting) {
+        SetDeviceState(kDeviceStateIdle);
+    }
+}
+
+void Application::EnterServerAudioMode() {
+    ESP_LOGI(TAG, "Switching to server audio mode");
+    audio_service_.SetAudioRouteMode(AudioRouteMode::kServer);
+    audio_service_.EnableVoiceProcessing(false);
+    ToggleChatState();
+}
+
 void Application::HandleWakeWordDetectedEvent() {
     if (!protocol_) {
         return;
@@ -864,8 +912,13 @@ void Application::HandleStateChangedEvent() {
             display->SetStatus(Lang::Strings::STANDBY);
             display->ClearChatMessages();  // Clear messages first
             display->SetEmotion("neutral"); // Then set emotion (wechat mode checks child count)
-            audio_service_.EnableVoiceProcessing(false);
-            audio_service_.EnableWakeWordDetection(true);
+            if (audio_service_.GetAudioRouteMode() == AudioRouteMode::kLocalPlayback) {
+                audio_service_.EnableWakeWordDetection(false);
+                audio_service_.EnableVoiceProcessing(true);
+            } else {
+                audio_service_.EnableVoiceProcessing(false);
+                audio_service_.EnableWakeWordDetection(true);
+            }
             break;
         case kDeviceStateConnecting:
             display->SetStatus(Lang::Strings::CONNECTING);
@@ -873,6 +926,7 @@ void Application::HandleStateChangedEvent() {
             display->SetChatMessage("system", "");
             break;
         case kDeviceStateListening:
+            audio_service_.SetAudioRouteMode(AudioRouteMode::kServer);
             display->SetStatus(Lang::Strings::LISTENING);
             display->SetEmotion("neutral");
 
@@ -1113,4 +1167,3 @@ void Application::ResetProtocol() {
         protocol_.reset();
     });
 }
-

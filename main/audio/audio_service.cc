@@ -100,7 +100,11 @@ void AudioService::Initialize(AudioCodec* codec) {
 #endif
 
     audio_processor_->OnOutput([this](std::vector<int16_t>&& data) {
-        PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
+        if (GetAudioRouteMode() == AudioRouteMode::kLocalPlayback) {
+            PushTaskToPlaybackQueue(std::move(data));
+        } else {
+            PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
+        }
     });
 
     audio_processor_->OnVadStateChange([this](bool speaking) {
@@ -507,6 +511,19 @@ void AudioService::PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t
     audio_queue_cv_.notify_all();
 }
 
+void AudioService::PushTaskToPlaybackQueue(std::vector<int16_t>&& pcm) {
+    auto task = std::make_unique<AudioTask>();
+    task->type = kAudioTaskTypeDecodeToPlaybackQueue;
+    task->pcm = std::move(pcm);
+
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    if (audio_playback_queue_.size() >= MAX_PLAYBACK_TASKS_IN_QUEUE) {
+        audio_playback_queue_.pop_front();
+    }
+    audio_playback_queue_.push_back(std::move(task));
+    audio_queue_cv_.notify_all();
+}
+
 bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> packet, bool wait) {
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
     if (audio_decode_queue_.size() >= MAX_DECODE_PACKETS_IN_QUEUE) {
@@ -630,6 +647,27 @@ void AudioService::EnableDeviceAec(bool enable) {
     audio_processor_->EnableDeviceAec(enable);
 }
 
+void AudioService::SetAudioRouteMode(AudioRouteMode mode) {
+    if (audio_route_mode_.exchange(mode) == mode) {
+        return;
+    }
+
+    ESP_LOGI(TAG, "Set audio route mode to %s",
+             mode == AudioRouteMode::kLocalPlayback ? "local playback" : "server");
+    ClearAudioQueues();
+}
+
+void AudioService::ClearAudioQueues() {
+    std::lock_guard<std::mutex> lock(audio_queue_mutex_);
+    audio_encode_queue_.clear();
+    audio_decode_queue_.clear();
+    audio_send_queue_.clear();
+    audio_playback_queue_.clear();
+    audio_testing_queue_.clear();
+    timestamp_queue_.clear();
+    audio_queue_cv_.notify_all();
+}
+
 void AudioService::SetCallbacks(AudioServiceCallbacks& callbacks) {
     callbacks_ = callbacks;
 }
@@ -664,8 +702,8 @@ bool AudioService::IsIdle() {
 
 void AudioService::WaitForPlaybackQueueEmpty() {
     std::unique_lock<std::mutex> lock(audio_queue_mutex_);
-    audio_queue_cv_.wait(lock, [this]() { 
-        return service_stopped_ || (audio_decode_queue_.empty() && audio_playback_queue_.empty()); 
+    audio_queue_cv_.wait(lock, [this]() {
+        return service_stopped_ || (audio_decode_queue_.empty() && audio_playback_queue_.empty());
     });
 }
 

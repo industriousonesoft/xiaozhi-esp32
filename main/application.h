@@ -31,6 +31,7 @@
 #define MAIN_EVENT_START_LISTENING      (1 << 10)
 #define MAIN_EVENT_STOP_LISTENING       (1 << 11)
 #define MAIN_EVENT_STATE_CHANGED        (1 << 12)
+#define MAIN_EVENT_TOGGLE_AUDIO_LINK    (1 << 13)
 
 
 enum AecMode {
@@ -102,6 +103,7 @@ public:
      * Sends MAIN_EVENT_STOP_LISTENING to be handled in Run()
      */
     void StopListening();
+    void ToggleAudioLinkMode();
 
     void Reboot();
     void WakeWordInvoke(const std::string& wake_word);
@@ -149,6 +151,7 @@ private:
     void HandleToggleChatEvent();
     void HandleStartListeningEvent();
     void HandleStopListeningEvent();
+    void HandleToggleAudioLinkEvent();
     void HandleNetworkConnectedEvent();
     void HandleNetworkDisconnectedEvent();
     void HandleActivationDoneEvent();
@@ -166,6 +169,8 @@ private:
     void ShowActivationCode(const std::string& code, const std::string& message);
     void SetListeningMode(ListeningMode mode);
     ListeningMode GetDefaultListeningMode() const;
+    void EnterLocalAfePlaybackMode();
+    void EnterServerAudioMode();
     
     // State change handler called by state machine
     void OnStateChanged(DeviceState old_state, DeviceState new_state);

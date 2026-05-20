@@ -109,7 +109,7 @@ private:
 
         auto play_button = adc_button_[BSP_ADC_BUTTON_PLAY];
         play_button->OnClick([this]() {
-            ESP_LOGI(TAG, " TODO %s:%d\n", __func__, __LINE__);
+            Application::GetInstance().ToggleAudioLinkMode();
         });
 
         auto set_button = adc_button_[BSP_ADC_BUTTON_SET];
@@ -231,6 +231,10 @@ public:
 
     virtual Led* GetLed() override {
         return &led_;
+    }
+
+    virtual bool DefaultLocalAfePlayback() const override {
+        return true;
     }
 
     virtual void OnAudioInputFrame(const int16_t* data, size_t samples, int channels, uint32_t timestamp_ms) override {

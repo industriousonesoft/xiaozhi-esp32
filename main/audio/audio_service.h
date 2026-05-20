@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <chrono>
 #include <mutex>
+#include <atomic>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -89,10 +90,15 @@ enum AudioTaskType {
     kAudioTaskTypeDecodeToPlaybackQueue,
 };
 
+enum class AudioRouteMode {
+    kServer,
+    kLocalPlayback,
+};
+
 struct AudioTask {
     AudioTaskType type;
     std::vector<int16_t> pcm;
-    uint32_t timestamp;
+    uint32_t timestamp = 0;
 };
 
 struct DebugStatistics {
@@ -124,6 +130,9 @@ public:
     void EnableVoiceProcessing(bool enable);
     void EnableAudioTesting(bool enable);
     void EnableDeviceAec(bool enable);
+    void SetAudioRouteMode(AudioRouteMode mode);
+    AudioRouteMode GetAudioRouteMode() const { return audio_route_mode_.load(); }
+    void ClearAudioQueues();
 
     void SetCallbacks(AudioServiceCallbacks& callbacks);
 
@@ -179,6 +188,7 @@ private:
     bool voice_detected_ = false;
     bool service_stopped_ = true;
     bool audio_input_need_warmup_ = false;
+    std::atomic<AudioRouteMode> audio_route_mode_ = AudioRouteMode::kServer;
 
     esp_timer_handle_t audio_power_timer_ = nullptr;
     std::chrono::steady_clock::time_point last_input_time_;
@@ -188,6 +198,7 @@ private:
     void AudioOutputTask();
     void OpusCodecTask();
     void PushTaskToEncodeQueue(AudioTaskType type, std::vector<int16_t>&& pcm);
+    void PushTaskToPlaybackQueue(std::vector<int16_t>&& pcm);
     void SetDecodeSampleRate(int sample_rate, int frame_duration);
     void CheckAndUpdateAudioPowerState();
 };

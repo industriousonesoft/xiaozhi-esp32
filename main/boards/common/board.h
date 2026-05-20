@@ -78,6 +78,7 @@ public:
     virtual NetworkInterface* GetNetwork() = 0;
     virtual void StartNetwork() = 0;
     virtual void SetNetworkEventCallback(NetworkEventCallback callback) { (void)callback; }
+    virtual bool DefaultLocalAfePlayback() const { return false; }
     virtual void OnAudioInputFrame(const int16_t* data, size_t samples, int channels, uint32_t timestamp_ms) {
         (void)data;
         (void)samples;
