@@ -18,11 +18,17 @@ Korvo1AudioCodec::Korvo1AudioCodec(void* i2c_master_handle, int input_sample_rat
     duplex_ = true;
 
     // Korvo-1 的 ES7210 输入里包含扬声器回采/参考通道，AFE 需要知道这一点来启用回声消除。
-    // v2 在 codec 内部先做 3 麦阵列处理，最终只向上层暴露 M/R 两路：增强后的主声源 + Reference。
+    // codec 内部先在采集采样率下做二麦阵列前处理，最终只向上层暴露 M/R 两路：
+    //   M = 60°拾音角内增强后的主声源；
+    //   R = 原始播放参考通道，用于后级 AFE 做 AEC。
+    // 当前 Korvo-1 输入配置为 48kHz，是为了提高 TDOA 分辨率；AudioService 会把 M/R 再重采样到 16kHz。
     input_reference_ = true;
     input_channels_ = input_channels;
     input_sample_rate_ = input_sample_rate;
     output_sample_rate_ = output_sample_rate;
+    // 麦阵处理器必须使用真实输入采样率计算 TDOA 搜索范围。
+    // 如果这里仍按 16kHz 计算，48kHz 采集下 65mm 基线会被误判成只有约 3 个最大延时采样点。
+    mic_array_processor_ = Korvo1MicArrayProcessor(input_sample_rate_);
 
     // 30 dB 参考 esp-skainet Korvo-1 BSP 的 RECORD_VOLUME。适用于板载 3 麦语音唤醒/对话。
     // 可选值通常是 0~42 dB 左右，取决于 esp_codec_dev/ES7210 驱动限制；现场噪声大可适当降低，
@@ -257,7 +263,8 @@ void Korvo1AudioCodec::EnableInput(bool enable) {
     if (enable) {
         esp_codec_dev_sample_info_t fs = {
             // 这里必须和 CreateInputChannel() 的 32-bit/stereo 配置保持一致。
-            // 依据是 Korvo-1 esp-skainet BSP: sample_rate=16000, channel=2, bits_per_sample=32。
+            // 依据是 Korvo-1 esp-skainet BSP 的 ES7210 lane 布局：channel=2, bits_per_sample=32。
+            // 采样率使用 input_sample_rate_，当前 Korvo-1 配置为 48kHz 以提高二麦 TDOA 分辨率。
             .bits_per_sample = 32,
             .channel = 2,
             .channel_mask = 0,
@@ -311,6 +318,8 @@ int Korvo1AudioCodec::Read(int16_t* dest, int samples) {
         //   raw[4*i + 2] = Mic1
         //   raw[4*i + 3] = Mic2
         // esp-skainet 的 input_format=RMNM 只是表示 AFE 不直接使用 raw[2]，不代表硬件没有第三颗麦。
+        // 当前二麦 60°定向算法只使用 raw[2]/raw[3] 作为左右基线，raw[1] 暂不进入 M 通道。
+        // 这里 raw 的帧数按 output samples / M/R 通道数计算，保证前处理输出仍正好填满 dest。
         std::vector<int16_t> raw(frames * AUDIO_INPUT_RAW_CHANNELS);
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_read(input_dev_, raw.data(), raw.size() * sizeof(int16_t)));
 
@@ -318,10 +327,14 @@ int Korvo1AudioCodec::Read(int16_t* dest, int samples) {
         last_mic_array_result_ = mic_array_processor_.ProcessRaw(
             raw.data(), raw.size(), processed, static_cast<uint32_t>(esp_timer_get_time() / 1000));
         if (processed.size() == static_cast<size_t>(samples)) {
+            // 正常路径：processed 为 M/R 交织数据，采样率仍是 input_sample_rate_。
+            // AudioService::ReadAudioData() 后续会按 codec_->input_sample_rate() 把两路一起重采样到 16kHz。
             std::copy(processed.begin(), processed.end(), dest);
         } else {
             ESP_LOGW(TAG, "mic array output size mismatch: got=%u expected=%d",
                      static_cast<unsigned>(processed.size()), samples);
+            // 保护性回退：如果前处理输出长度异常，仍输出一个可供后级处理的 M/R 帧。
+            // M 取 raw[1]，R 取 reference，避免音频输入任务因为一次异常帧中断。
             for (int i = 0; i < frames; ++i) {
                 dest[input_channels_ * i + 0] = raw[AUDIO_INPUT_RAW_CHANNELS * i + 1];
                 dest[input_channels_ * i + 1] = raw[AUDIO_INPUT_RAW_CHANNELS * i + 0];

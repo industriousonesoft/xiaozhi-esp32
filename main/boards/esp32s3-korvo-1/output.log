@@ -1,0 +1,13 @@
+
+I (104718) Korvo1MicArray: inactive: fixed-main low energy frames=160 rms=[253.4 170.7 156.3] threshold=280.0
+I (105228) Korvo1MicArray: fixed-main: frames=160 rms=[413.3 266.0 253.4] ratio=1.55 conf=0.04 suppress=0.65 delays=[2.63 0.00 0.00] active=0
+I (105738) Korvo1MicArray: fixed-main: frames=160 rms=[341.7 226.3 197.7] ratio=1.51 conf=0.02 suppress=0.65 delays=[2.63 0.00 0.00] active=0
+I (106248) Korvo1MicArray: fixed-main: frames=160 rms=[410.5 269.1 265.3] ratio=1.53 conf=0.04 suppress=0.65 delays=[2.63 0.00 0.00] active=0
+I (106758) Korvo1MicArray: fixed-main: frames=160 rms=[348.4 182.2 172.4] ratio=1.91 conf=0.02 suppress=0.65 delays=[2.63 0.00 0.00] active=0
+I (107268) Korvo1MicArray: fixed-main: frames=160 rms=[487.1 325.1 285.1] ratio=1.50 conf=0.06 suppress=0.65 delays=[2.63 0.00 0.00] active=0
+I (107778) Korvo1MicArray: fixed-main: frames=160 rms=[310.8 198.1 182.2] ratio=1.57 conf=0.01 suppress=0.65 delays=[2.63 0.00 0.00] active=0
+I (108288) Korvo1MicArray: fixed-main: frames=160 rms=[353.9 181.9 161.2] ratio=1.95 conf=0.02 suppress=0.65 delays=[2.63 0.00 0.00] active=0
+I (108798) Korvo1MicArray: fixed-main: frames=160 rms=[582.8 374.9 344.2] ratio=1.55 conf=0.09 suppress=0.65 delays=[2.63 0.00 0.00] active=0
+I (109308) Korvo1MicArray: fixed-main: frames=160 rms=[433.5 262.9 276.5] ratio=1.57 conf=0.05 suppress=0.65 delays=[2.63 0.00 0.00] active=0
+I (109818) Korvo1MicArray: fixed-main: frames=160 rms=[373.4 214.7 200.5] ratio=1.74 conf=0.03 suppress=0.65 delays=[2.63 0.00 0.00] active=0
+I (110328) Korvo1MicArray: fixed-main: frames=160 rms=[280.7 188.3 158.6] ratio=1.49 conf=0.00 suppress=0.65 delays=[2.63 0.00 0.00] active=0
