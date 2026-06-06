@@ -686,6 +686,10 @@ void Application::ToggleAudioLinkMode() {
 }
 
 void Application::HandleToggleChatEvent() {
+    if (audio_service_.IsDebugMode()) {
+        ESP_LOGW(TAG, "Ignoring chat toggle while audio debug mode is active");
+        return;
+    }
     auto state = GetDeviceState();
     
     if (state == kDeviceStateActivating) {
@@ -740,6 +744,10 @@ void Application::ContinueOpenAudioChannel(ListeningMode mode) {
 }
 
 void Application::HandleStartListeningEvent() {
+    if (audio_service_.IsDebugMode()) {
+        ESP_LOGW(TAG, "Ignoring listening request while audio debug mode is active");
+        return;
+    }
     auto state = GetDeviceState();
     
     if (state == kDeviceStateActivating) {
@@ -788,10 +796,26 @@ void Application::HandleStopListeningEvent() {
 }
 
 void Application::HandleToggleAudioLinkEvent() {
+    if (audio_service_.IsDebugMode()) {
+        ESP_LOGW(TAG, "Ignoring audio route toggle while audio debug mode is active");
+        return;
+    }
     if (audio_service_.GetAudioRouteMode() == AudioRouteMode::kLocalPlayback) {
         EnterServerAudioMode();
     } else {
         EnterLocalAfePlaybackMode();
+    }
+}
+
+void Application::SetAudioDebugMode(bool enable) {
+    if (enable && protocol_ && protocol_->IsAudioChannelOpened()) {
+        protocol_->CloseAudioChannel();
+    }
+    audio_service_.SetDebugMode(enable);
+    if (enable && (GetDeviceState() == kDeviceStateListening ||
+                   GetDeviceState() == kDeviceStateSpeaking ||
+                   GetDeviceState() == kDeviceStateConnecting)) {
+        SetDeviceState(kDeviceStateIdle);
     }
 }
 

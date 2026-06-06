@@ -824,6 +824,12 @@ if(CONFIG_USE_AUDIO_PROCESSOR)
 else()
     list(APPEND SOURCES "audio/processors/no_audio_processor.cc")
 endif()
+if(CONFIG_USE_AUDIO_DEBUG_DASHBOARD)
+    list(APPEND SOURCES
+        "audio/debug/audio_debug_protocol.cc"
+        "audio/debug/audio_debug_service.cc")
+    list(APPEND INCLUDE_DIRS "audio/debug")
+endif()
 if(CONFIG_IDF_TARGET_ESP32S3 OR CONFIG_IDF_TARGET_ESP32P4)
     list(APPEND SOURCES "audio/wake_words/afe_wake_word.cc")
     list(APPEND SOURCES "audio/wake_words/custom_wake_word.cc")

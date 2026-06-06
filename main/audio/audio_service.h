@@ -93,6 +93,7 @@ enum AudioTaskType {
 enum class AudioRouteMode {
     kServer,
     kLocalPlayback,
+    kDiscard,
 };
 
 struct AudioTask {
@@ -131,6 +132,8 @@ public:
     void EnableAudioTesting(bool enable);
     void EnableDeviceAec(bool enable);
     void SetAudioRouteMode(AudioRouteMode mode);
+    void SetDebugMode(bool enable);
+    bool IsDebugMode() const { return debug_mode_active_; }
     AudioRouteMode GetAudioRouteMode() const { return audio_route_mode_.load(); }
     void ClearAudioQueues();
 
@@ -189,6 +192,10 @@ private:
     bool service_stopped_ = true;
     bool audio_input_need_warmup_ = false;
     std::atomic<AudioRouteMode> audio_route_mode_ = AudioRouteMode::kServer;
+    bool debug_mode_active_ = false;
+    bool debug_saved_wake_word_ = false;
+    bool debug_saved_processor_ = false;
+    AudioRouteMode debug_saved_route_ = AudioRouteMode::kServer;
 
     esp_timer_handle_t audio_power_timer_ = nullptr;
     std::chrono::steady_clock::time_point last_input_time_;

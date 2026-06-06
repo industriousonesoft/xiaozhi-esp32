@@ -119,7 +119,7 @@ void AudioService::Initialize(AudioCodec* codec) {
     audio_processor_->OnOutput([this](std::vector<int16_t>&& data) {
         if (GetAudioRouteMode() == AudioRouteMode::kLocalPlayback) {
             PushTaskToPlaybackQueue(std::move(data));
-        } else {
+        } else if (GetAudioRouteMode() == AudioRouteMode::kServer) {
             PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
         }
     });
@@ -674,9 +674,31 @@ void AudioService::SetAudioRouteMode(AudioRouteMode mode) {
         return;
     }
 
-    ESP_LOGI(TAG, "Set audio route mode to %s",
-             mode == AudioRouteMode::kLocalPlayback ? "local playback" : "server");
+    const char* mode_name = mode == AudioRouteMode::kLocalPlayback ? "local playback" :
+        (mode == AudioRouteMode::kServer ? "server" : "discard");
+    ESP_LOGI(TAG, "Set audio route mode to %s", mode_name);
     ClearAudioQueues();
+}
+
+void AudioService::SetDebugMode(bool enable) {
+    if (enable == debug_mode_active_) {
+        return;
+    }
+    if (enable) {
+        debug_saved_wake_word_ = IsWakeWordRunning();
+        debug_saved_processor_ = IsAudioProcessorRunning();
+        debug_saved_route_ = GetAudioRouteMode();
+        debug_mode_active_ = true;
+        SetAudioRouteMode(AudioRouteMode::kDiscard);
+        EnableWakeWordDetection(false);
+        EnableVoiceProcessing(true);
+        return;
+    }
+
+    EnableVoiceProcessing(debug_saved_processor_);
+    EnableWakeWordDetection(debug_saved_wake_word_);
+    SetAudioRouteMode(debug_saved_route_);
+    debug_mode_active_ = false;
 }
 
 void AudioService::ClearAudioQueues() {

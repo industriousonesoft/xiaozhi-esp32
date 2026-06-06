@@ -85,6 +85,32 @@ public:
         (void)channels;
         (void)timestamp_ms;
     }
+    virtual void OnAudioRawInputFrame(const int16_t* data, size_t frames, int channels,
+                                      int sample_rate, uint64_t timestamp_us) {
+        (void)data;
+        (void)frames;
+        (void)channels;
+        (void)sample_rate;
+        (void)timestamp_us;
+    }
+    virtual void OnAudioBeamFrame(const int16_t* data, size_t frames, int sample_rate,
+                                  float angle_deg, float confidence, bool active,
+                                  uint64_t timestamp_us) {
+        (void)data;
+        (void)frames;
+        (void)sample_rate;
+        (void)angle_deg;
+        (void)confidence;
+        (void)active;
+        (void)timestamp_us;
+    }
+    virtual void OnAfeOutputFrame(const int16_t* data, size_t frames, int sample_rate,
+                                  uint64_t timestamp_us) {
+        (void)data;
+        (void)frames;
+        (void)sample_rate;
+        (void)timestamp_us;
+    }
     virtual const char* GetNetworkStateIcon() = 0;
     virtual bool GetBatteryLevel(int &level, bool& charging, bool& discharging);
     virtual std::string GetSystemInfoJson();

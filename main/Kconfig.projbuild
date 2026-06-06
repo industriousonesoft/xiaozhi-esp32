@@ -843,6 +843,20 @@ config USE_AUDIO_DEBUGGER
     help
         Enable audio debugger, send audio data through UDP to the host machine
 
+config USE_AUDIO_DEBUG_DASHBOARD
+    bool "Enable Korvo-1 Audio Debug Dashboard"
+    default n
+    depends on BOARD_TYPE_ESP32S3_KORVO_1 && USE_AUDIO_PROCESSOR
+    help
+        Enable the LAN UDP control and audio telemetry service used by
+        scripts/audio_debug_dashboard.
+
+config AUDIO_DEBUG_DASHBOARD_CONTROL_PORT
+    int "Audio Debug Dashboard UDP Control Port"
+    default 8001
+    range 1024 65535
+    depends on USE_AUDIO_DEBUG_DASHBOARD
+
 menu "WiFi Configuration Method"
     help
         WiFi Configuration Method Selection

@@ -1,5 +1,6 @@
 #include "korvo1_audio_codec.h"
 #include "config.h"
+#include "boards/common/board.h"
 
 #include <driver/i2c_master.h>
 #include <driver/i2s_std.h>
@@ -14,7 +15,8 @@
 Korvo1AudioCodec::Korvo1AudioCodec(void* i2c_master_handle, int input_sample_rate, int output_sample_rate,
     gpio_num_t output_mclk, gpio_num_t output_bclk, gpio_num_t output_ws, gpio_num_t output_dout,
     gpio_num_t input_mclk, gpio_num_t input_bclk, gpio_num_t input_ws, gpio_num_t input_din,
-    gpio_num_t pa_pin, uint8_t es8311_addr, uint8_t es7210_addr, int input_channels) {
+    gpio_num_t pa_pin, uint8_t es8311_addr, uint8_t es7210_addr, int input_channels)
+    : mic_array_processor_(input_sample_rate) {
     duplex_ = true;
 
     // Korvo-1 的 ES7210 输入里包含扬声器回采/参考通道，AFE 需要知道这一点来启用回声消除。
@@ -28,8 +30,6 @@ Korvo1AudioCodec::Korvo1AudioCodec(void* i2c_master_handle, int input_sample_rat
     output_sample_rate_ = output_sample_rate;
     // 麦阵处理器必须使用真实输入采样率计算 TDOA 搜索范围。
     // 如果这里仍按 16kHz 计算，48kHz 采集下 65mm 基线会被误判成只有约 3 个最大延时采样点。
-    mic_array_processor_ = Korvo1MicArrayProcessor(input_sample_rate_);
-
     // 30 dB 参考 esp-skainet Korvo-1 BSP 的 RECORD_VOLUME。适用于板载 3 麦语音唤醒/对话。
     // 可选值通常是 0~42 dB 左右，取决于 esp_codec_dev/ES7210 驱动限制；现场噪声大可适当降低，
     // 拾音距离远可适当升高，但过高会增加底噪和削波风险。
@@ -323,10 +323,25 @@ int Korvo1AudioCodec::Read(int16_t* dest, int samples) {
         std::vector<int16_t> raw(frames * AUDIO_INPUT_RAW_CHANNELS);
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_read(input_dev_, raw.data(), raw.size() * sizeof(int16_t)));
 
+        const uint64_t timestamp_us = esp_timer_get_time();
+#if CONFIG_USE_AUDIO_DEBUG_DASHBOARD
+        Board::GetInstance().OnAudioRawInputFrame(
+            raw.data(), frames, AUDIO_INPUT_RAW_CHANNELS, input_sample_rate_, timestamp_us);
+#endif
+
         std::vector<int16_t> processed;
         last_mic_array_result_ = mic_array_processor_.ProcessRaw(
-            raw.data(), raw.size(), processed, static_cast<uint32_t>(esp_timer_get_time() / 1000));
+            raw.data(), raw.size(), processed, static_cast<uint32_t>(timestamp_us / 1000));
         if (processed.size() == static_cast<size_t>(samples)) {
+#if CONFIG_USE_AUDIO_DEBUG_DASHBOARD
+            std::vector<int16_t> beam(frames);
+            for (int i = 0; i < frames; ++i) {
+                beam[i] = processed[input_channels_ * i];
+            }
+            Board::GetInstance().OnAudioBeamFrame(
+                beam.data(), frames, input_sample_rate_, last_mic_array_result_.angle_deg,
+                last_mic_array_result_.confidence, last_mic_array_result_.active, timestamp_us);
+#endif
             // 正常路径：processed 为 M/R 交织数据，采样率仍是 input_sample_rate_。
             // AudioService::ReadAudioData() 后续会按 codec_->input_sample_rate() 把两路一起重采样到 16kHz。
             std::copy(processed.begin(), processed.end(), dest);

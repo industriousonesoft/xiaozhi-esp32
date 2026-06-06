@@ -36,17 +36,7 @@ constexpr int kMicArrayChannels = 2;
 // 65mm 在 48kHz 下最大约 9.1 samples；±30°对应约一半最大时间差。
 constexpr float kMicDistanceMeters = 0.065f;
 constexpr float kSpeedOfSoundMetersPerSec = 343.0f;
-constexpr float kPickupHalfAngleDeg = 30.0f;
-
-// Beamformer 的经验门限。这里判断的是二麦基线里最强一路的 10ms/16ms RMS。
-// 太低会被底噪触发，太高会漏掉远距离/小音量说话。
-constexpr float kMinRmsForVoice = 280.0f;
-constexpr float kFullScaleRms = 3500.0f;
-constexpr float kMinConfidence = 0.18f;
 constexpr uint32_t kDebugLogIntervalMs = 500;
-// 两颗麦的响度比值下限。正前方远场声源到两颗对称麦的能量应接近；
-// 若差异太大，通常是近场、偏轴、遮挡、结构漏声或单通道异常，不能只看 TDOA 就判为前方声源。
-constexpr float kMinPairBalance = 0.75f;
 
 float Clamp(float value, float min_value, float max_value) {
     return std::max(min_value, std::min(value, max_value));
@@ -110,7 +100,7 @@ Korvo1MicArrayResult Korvo1MicArrayProcessor::ProcessRaw(const int16_t* raw_data
     }
 
     std::vector<int16_t> enhanced_mic;
-    result = ProcessFixedMainMicBeamformer(mic_data.data(), frames, enhanced_mic, timestamp_ms);
+    result = ProcessFixedMainMicBeamformer(mic_data.data(), frames, enhanced_mic, timestamp_ms, GetConfig());
 
     output_mr.resize(frames * kAfeChannels);
     for (size_t i = 0; i < frames; ++i) {
@@ -128,7 +118,8 @@ Korvo1MicArrayResult Korvo1MicArrayProcessor::Process(const int16_t* data, size_
 
 Korvo1MicArrayResult Korvo1MicArrayProcessor::ProcessFixedMainMicBeamformer(const int16_t* mic_data, size_t frames,
                                                                              std::vector<int16_t>& output_mic,
-                                                                             uint32_t timestamp_ms) {
+                                                                             uint32_t timestamp_ms,
+                                                                             const Korvo1MicArrayConfig& config) {
     // 这里不做动态 DOA 选择，也不依赖乐鑫 MASE。当前实现只使用两颗对称麦，
     // 固定为正前方 broadside：两路同相时增强，左右侧不均衡时衰减。
     Korvo1MicArrayResult result;
@@ -161,7 +152,7 @@ Korvo1MicArrayResult Korvo1MicArrayProcessor::ProcessFixedMainMicBeamformer(cons
         sum_rms += rms[ch];
     }
 
-    if (max_rms < kMinRmsForVoice || sum_rms <= 1.0f) {
+    if (max_rms < config.min_rms_for_voice || sum_rms <= 1.0f) {
         // 低能量帧通常是静音或底噪。此时不做角度估计，直接输出两麦平均值；
         // 这样能保持背景噪声平滑，也避免底噪随机相关导致 active 状态抖动。
         for (size_t i = 0; i < frames; ++i) {
@@ -170,12 +161,12 @@ Korvo1MicArrayResult Korvo1MicArrayProcessor::ProcessFixedMainMicBeamformer(cons
             output_mic[i] = ClampToInt16((mic0 + mic1) * 0.5f);
         }
         last_confidence_ *= 0.75f;
-        if (last_confidence_ < kMinConfidence) {
+        if (last_confidence_ < config.min_confidence) {
             has_estimate_ = false;
         }
         if (ShouldLogDebug(timestamp_ms)) {
             KORVO1_MIC_ARRAY_LOGI("inactive: two-mic low energy frames=%u rms=[%.1f %.1f] threshold=%.1f",
-                                  static_cast<unsigned>(frames), rms[0], rms[1], kMinRmsForVoice);
+                                  static_cast<unsigned>(frames), rms[0], rms[1], config.min_rms_for_voice);
         }
         return result;
     }
@@ -183,7 +174,7 @@ Korvo1MicArrayResult Korvo1MicArrayProcessor::ProcessFixedMainMicBeamformer(cons
     const int max_tdoa_samples = std::max(1, static_cast<int>(
         std::lround(kMicDistanceMeters / kSpeedOfSoundMetersPerSec * sample_rate_)));
     const int pickup_tdoa_samples = std::max(1, static_cast<int>(
-        std::lround(max_tdoa_samples * std::sin(kPickupHalfAngleDeg * 3.14159265358979323846f / 180.0f))));
+        std::lround(max_tdoa_samples * std::sin(config.pickup_half_angle_deg * 3.14159265358979323846f / 180.0f))));
 
     // 用归一化互相关在 [-max_tdoa_samples, +max_tdoa_samples] 内搜索两麦最可能的时间差。
     // lag 的定义：mic1 取 i + lag 与 mic0 的 i 对齐；best_lag 越大，表示两路需要越大的样本偏移才能相干。
@@ -249,25 +240,28 @@ Korvo1MicArrayResult Korvo1MicArrayProcessor::ProcessFixedMainMicBeamformer(cons
     // 这样真实设备上不会因为单帧估计波动产生明显断续。
     const float min_rms = std::min(rms[0], rms[1]);
     const float pair_balance = min_rms / std::max(max_rms, 1.0f);
-    const float balance_score = Clamp(pair_balance / kMinPairBalance, 0.0f, 1.0f);
-    const float angle_score = angle_abs <= kPickupHalfAngleDeg
+    const float balance_score = Clamp(pair_balance / config.min_pair_balance, 0.0f, 1.0f);
+    const float angle_score = angle_abs <= config.pickup_half_angle_deg
         ? 1.0f
-        : Clamp(1.0f - (angle_abs - kPickupHalfAngleDeg) / (90.0f - kPickupHalfAngleDeg), 0.0f, 1.0f);
-    float confidence = Clamp((max_rms - kMinRmsForVoice) / (kFullScaleRms - kMinRmsForVoice), 0.0f, 1.0f);
+        : Clamp(1.0f - (angle_abs - config.pickup_half_angle_deg) /
+            (90.0f - config.pickup_half_angle_deg), 0.0f, 1.0f);
+    float confidence = Clamp((max_rms - config.min_rms_for_voice) /
+        (config.full_scale_rms - config.min_rms_for_voice), 0.0f, 1.0f);
     // 置信度同时依赖响度、两麦能量平衡、互相关强度和角度门控。
     // balance_score 使用四次方是故意的：能量严重不平衡时，要强力压低近场/侧向误判。
     confidence *= balance_score * balance_score * balance_score * balance_score * best_corr * angle_score * angle_score;
 
     // active 代表“这一帧可以认为是 60°拾音角内的有效前方声源”。
     // 除了角度落在门限内，还要求两麦能量足够平衡、互相关足够强，避免噪声或单通道大音量触发方向显示。
-    has_estimate_ = confidence >= kMinConfidence && pair_balance >= kMinPairBalance &&
-        best_corr >= 0.35f && std::abs(best_lag) <= pickup_tdoa_samples;
+    has_estimate_ = confidence >= config.min_confidence && pair_balance >= config.min_pair_balance &&
+        best_corr >= config.min_correlation && std::abs(best_lag) <= pickup_tdoa_samples;
     last_confidence_ = confidence;
 
     // 对 active 帧，按 best_lag 对齐后直接平均，得到前方增强的 M 通道。
     // 对非 active 帧，不完全静音，而是按角度和能量平衡做 0.15~0.65 的衰减；
     // 这样仍保留少量环境声，减少 VAD/AEC 输入突变，同时实现角外人声压低。
-    const float off_axis_suppression = has_estimate_ ? 1.0f : Clamp(pair_balance * angle_score, 0.15f, 0.65f);
+    const float off_axis_suppression = has_estimate_ ? 1.0f :
+        Clamp(pair_balance * angle_score, config.off_axis_min_gain, config.off_axis_max_gain);
     for (size_t i = 0; i < frames; ++i) {
         const float mic0 = SampleMicWithLag(mic_data, frames, 0, static_cast<int>(i));
         const float mic1 = SampleMicWithLag(mic_data, frames, 1, static_cast<int>(i) + best_lag);
@@ -287,6 +281,37 @@ Korvo1MicArrayResult Korvo1MicArrayProcessor::ProcessFixedMainMicBeamformer(cons
     }
 
     return result;
+}
+
+bool Korvo1MicArrayProcessor::SetConfig(const Korvo1MicArrayConfig& config) {
+    if (!IsValidConfig(config)) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(config_mutex_);
+    config_ = config;
+    return true;
+}
+
+Korvo1MicArrayConfig Korvo1MicArrayProcessor::GetConfig() const {
+    std::lock_guard<std::mutex> lock(config_mutex_);
+    return config_;
+}
+
+void Korvo1MicArrayProcessor::ResetConfig() {
+    std::lock_guard<std::mutex> lock(config_mutex_);
+    config_ = Korvo1MicArrayConfig{};
+}
+
+bool Korvo1MicArrayProcessor::IsValidConfig(const Korvo1MicArrayConfig& config) {
+    return config.pickup_half_angle_deg >= 5.0f && config.pickup_half_angle_deg <= 85.0f &&
+        config.min_rms_for_voice >= 0.0f && config.min_rms_for_voice < config.full_scale_rms &&
+        config.full_scale_rms <= 32767.0f &&
+        config.min_confidence >= 0.0f && config.min_confidence <= 1.0f &&
+        config.min_pair_balance > 0.0f && config.min_pair_balance <= 1.0f &&
+        config.min_correlation >= 0.0f && config.min_correlation <= 1.0f &&
+        config.off_axis_min_gain >= 0.0f &&
+        config.off_axis_min_gain <= config.off_axis_max_gain &&
+        config.off_axis_max_gain <= 1.0f;
 }
 
 void Korvo1MicArrayProcessor::Reset() {

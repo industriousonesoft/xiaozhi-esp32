@@ -63,6 +63,30 @@ static std::vector<int16_t> MakeRawShiftedSignal(int frames, int16_t ref, int la
 int main() {
     Korvo1MicArrayProcessor processor;
 
+    auto default_config = processor.GetConfig();
+    assert(default_config.pickup_half_angle_deg == 30.0f);
+    assert(default_config.min_rms_for_voice == 280.0f);
+    assert(default_config.min_confidence == 0.18f);
+    assert(default_config.full_scale_rms == 3500.0f);
+    assert(default_config.min_pair_balance == 0.75f);
+    assert(default_config.min_correlation == 0.35f);
+    assert(default_config.off_axis_min_gain == 0.15f);
+    assert(default_config.off_axis_max_gain == 0.65f);
+
+    Korvo1MicArrayConfig invalid_config = default_config;
+    invalid_config.pickup_half_angle_deg = 95.0f;
+    assert(!processor.SetConfig(invalid_config));
+    assert(processor.GetConfig().pickup_half_angle_deg == default_config.pickup_half_angle_deg);
+
+    invalid_config = default_config;
+    invalid_config.full_scale_rms = invalid_config.min_rms_for_voice;
+    assert(!processor.SetConfig(invalid_config));
+
+    invalid_config = default_config;
+    invalid_config.off_axis_min_gain = 0.8f;
+    invalid_config.off_axis_max_gain = 0.4f;
+    assert(!processor.SetConfig(invalid_config));
+
     auto silence = MakeRawFrame(160, 100, 20, 18, 22);
     std::vector<int16_t> output;
     auto silent_result = processor.ProcessRaw(silence.data(), silence.size(), output, 0);
@@ -118,6 +142,20 @@ int main() {
     assert(outside_result.confidence < 0.2f);
     assert(RmsOfChannel(output, 2, 0) < 1200.0f);
     assert(output[1] == -222);
+
+    Korvo1MicArrayConfig wide_config = processor_48k.GetConfig();
+    wide_config.pickup_half_angle_deg = 60.0f;
+    wide_config.min_confidence = 0.05f;
+    assert(processor_48k.SetConfig(wide_config));
+    auto updated_config = processor_48k.GetConfig();
+    assert(updated_config.pickup_half_angle_deg == 60.0f);
+    assert(updated_config.min_confidence == 0.05f);
+
+    auto widened_result = processor_48k.ProcessRaw(outside_60deg.data(), outside_60deg.size(), output, 60);
+    assert(widened_result.active);
+
+    processor_48k.ResetConfig();
+    assert(processor_48k.GetConfig().pickup_half_angle_deg == default_config.pickup_half_angle_deg);
 
     return 0;
 }

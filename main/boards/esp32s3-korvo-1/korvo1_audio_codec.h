@@ -42,6 +42,9 @@ public:
     virtual void EnableInput(bool enable) override;
     virtual void EnableOutput(bool enable) override;
     const Korvo1MicArrayResult& last_mic_array_result() const { return last_mic_array_result_; }
+    Korvo1MicArrayConfig GetMicArrayConfig() const { return mic_array_processor_.GetConfig(); }
+    bool SetMicArrayConfig(const Korvo1MicArrayConfig& config) { return mic_array_processor_.SetConfig(config); }
+    void ResetMicArrayConfig() { mic_array_processor_.ResetConfig(); }
     void ResetMicArray();
 };
 

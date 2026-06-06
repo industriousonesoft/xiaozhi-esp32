@@ -4,6 +4,9 @@
 #include "application.h"
 #include "button.h"
 #include "config.h"
+#if CONFIG_USE_AUDIO_DEBUG_DASHBOARD
+#include "audio/debug/audio_debug_service.h"
+#endif
 
 #include <driver/i2c_master.h>
 #include <esp_adc/adc_oneshot.h>
@@ -35,6 +38,9 @@ private:
     bool source_led_active_ = false;
     uint32_t last_source_ms_ = 0;
     uint32_t last_led_update_ms_ = 0;
+#if CONFIG_USE_AUDIO_DEBUG_DASHBOARD
+    AudioDebugService audio_debug_service_;
+#endif
 
     void InitializeI2c() {
         i2c_master_bus_config_t i2c_bus_cfg = {
@@ -135,6 +141,49 @@ private:
         });
     }
 
+#if CONFIG_USE_AUDIO_DEBUG_DASHBOARD
+    void InitializeAudioDebugService() {
+        AudioDebugServiceCallbacks callbacks;
+        callbacks.on_session_state = [](bool active) {
+            Application::GetInstance().Schedule([active]() {
+                Application::GetInstance().SetAudioDebugMode(active);
+            });
+        };
+        callbacks.get_tuning = [this]() {
+            auto config = static_cast<Korvo1AudioCodec*>(GetAudioCodec())->GetMicArrayConfig();
+            AudioDebugTuningConfig result;
+            result.pickup_half_angle_deg = config.pickup_half_angle_deg;
+            result.min_rms_for_voice = config.min_rms_for_voice;
+            result.min_confidence = config.min_confidence;
+            result.full_scale_rms = config.full_scale_rms;
+            result.min_pair_balance = config.min_pair_balance;
+            result.min_correlation = config.min_correlation;
+            result.off_axis_min_gain = config.off_axis_min_gain;
+            result.off_axis_max_gain = config.off_axis_max_gain;
+            return result;
+        };
+        callbacks.set_tuning = [this](const AudioDebugTuningConfig& config) {
+            Korvo1MicArrayConfig target;
+            target.pickup_half_angle_deg = config.pickup_half_angle_deg;
+            target.min_rms_for_voice = config.min_rms_for_voice;
+            target.min_confidence = config.min_confidence;
+            target.full_scale_rms = config.full_scale_rms;
+            target.min_pair_balance = config.min_pair_balance;
+            target.min_correlation = config.min_correlation;
+            target.off_axis_min_gain = config.off_axis_min_gain;
+            target.off_axis_max_gain = config.off_axis_max_gain;
+            return static_cast<Korvo1AudioCodec*>(GetAudioCodec())->SetMicArrayConfig(target);
+        };
+        callbacks.reset_tuning = [this]() {
+            static_cast<Korvo1AudioCodec*>(GetAudioCodec())->ResetMicArrayConfig();
+        };
+        audio_debug_service_.SetCallbacks(std::move(callbacks));
+        if (!audio_debug_service_.Start()) {
+            ESP_LOGE(TAG, "Failed to start audio debug dashboard service");
+        }
+    }
+#endif
+
     void ChangeVol(int val) {
         auto codec = GetAudioCodec();
         auto volume = codec->output_volume() + val;
@@ -207,6 +256,9 @@ public:
         ESP_LOGI(TAG, "Initializing ESP32-S3-Korvo-1 board");
         InitializeI2c();
         InitializeButtons();
+#if CONFIG_USE_AUDIO_DEBUG_DASHBOARD
+        InitializeAudioDebugService();
+#endif
     }
 
     virtual AudioCodec* GetAudioCodec() override {
@@ -265,6 +317,25 @@ public:
             led_.OnStateChanged();
         }
     }
+
+#if CONFIG_USE_AUDIO_DEBUG_DASHBOARD
+    void OnAudioRawInputFrame(const int16_t* data, size_t frames, int channels,
+                              int sample_rate, uint64_t timestamp_us) override {
+        audio_debug_service_.QueueRawMics(data, frames, channels, sample_rate, timestamp_us);
+    }
+
+    void OnAudioBeamFrame(const int16_t* data, size_t frames, int sample_rate,
+                          float angle_deg, float confidence, bool active,
+                          uint64_t timestamp_us) override {
+        audio_debug_service_.QueueBeam(
+            data, frames, sample_rate, angle_deg, confidence, active, timestamp_us);
+    }
+
+    void OnAfeOutputFrame(const int16_t* data, size_t frames, int sample_rate,
+                          uint64_t timestamp_us) override {
+        audio_debug_service_.QueueAfe(data, frames, sample_rate, timestamp_us);
+    }
+#endif
 };
 
 DECLARE_BOARD(Esp32S3Korvo1Board);

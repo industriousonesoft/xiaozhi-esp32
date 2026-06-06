@@ -1,5 +1,7 @@
 #include "afe_audio_processor.h"
+#include "boards/common/board.h"
 #include <esp_log.h>
+#include <esp_timer.h>
 
 #define PROCESSOR_RUNNING 0x01
 
@@ -152,6 +154,11 @@ void AfeAudioProcessor::AudioProcessorTask() {
             }
             continue;
         }
+
+#if CONFIG_USE_AUDIO_DEBUG_DASHBOARD
+        Board::GetInstance().OnAfeOutputFrame(
+            res->data, res->data_size / sizeof(int16_t), 16000, esp_timer_get_time());
+#endif
 
         // VAD state change
         if (vad_state_change_callback_) {

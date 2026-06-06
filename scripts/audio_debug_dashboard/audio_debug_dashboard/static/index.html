@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32 音频调试仪表盘</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>ESP32 音频调试仪表盘</h1>
+      <p id="statusText">未连接</p>
+    </div>
+    <div class="connection">
+      <input id="deviceIp" placeholder="ESP32 IP，例如 192.168.1.80">
+      <button id="connectBtn">连接</button>
+      <button id="disconnectBtn" class="secondary">断开</button>
+      <button id="recordBtn">开始录制</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="toolbar panel">
+      <label>时间窗
+        <select id="windowSeconds">
+          <option value="0.5">0.5 秒</option>
+          <option value="1">1 秒</option>
+          <option value="2" selected>2 秒</option>
+          <option value="5">5 秒</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="pauseDisplay"> 暂停画面</label>
+      <label><input type="checkbox" id="fixedScale"> 固定 int16 满量程</label>
+      <span id="roleText"></span>
+    </section>
+
+    <section class="grid">
+      <div class="wave-panel panel raw">
+        <h2>原始麦克风 · 48 kHz</h2>
+        <div class="wave"><span>MIC 0</span><canvas id="mic0"></canvas></div>
+        <div class="wave"><span>MIC 1</span><canvas id="mic1"></canvas></div>
+        <div class="wave"><span>MIC 2</span><canvas id="mic2"></canvas></div>
+      </div>
+
+      <div class="direction-panel panel">
+        <h2>声源方位</h2>
+        <canvas id="direction"></canvas>
+        <div class="direction-values">
+          <strong id="angleValue">--°</strong>
+          <span id="confidenceValue">置信度 --</span>
+          <span id="activeValue" class="inactive">无有效声源</span>
+        </div>
+      </div>
+
+      <div class="wave-panel panel">
+        <h2>麦克风阵列输出 · 48 kHz</h2>
+        <div class="wave large"><span>BEAM</span><canvas id="beam"></canvas></div>
+      </div>
+
+      <div class="wave-panel panel">
+        <h2>AFE 输出 · 16 kHz</h2>
+        <div class="wave large"><span>AFE</span><canvas id="afe"></canvas></div>
+      </div>
+    </section>
+
+    <section class="bottom-grid">
+      <form id="paramsForm" class="panel params">
+        <h2>阵列参数（会话内生效）</h2>
+        <label>拾音半角 °<input name="pickup_half_angle_deg" type="number" min="5" max="85" step="1" value="30"></label>
+        <label>最低 RMS<input name="min_rms_for_voice" type="number" min="0" max="32000" step="10" value="280"></label>
+        <label>置信度门限<input name="min_confidence" type="number" min="0" max="1" step="0.01" value="0.18"></label>
+        <label>满量程 RMS<input name="full_scale_rms" type="number" min="1" max="32767" step="100" value="3500"></label>
+        <label>双麦平衡门限<input name="min_pair_balance" type="number" min="0.01" max="1" step="0.01" value="0.75"></label>
+        <label>最低互相关<input name="min_correlation" type="number" min="0" max="1" step="0.01" value="0.35"></label>
+        <label>角外最小增益<input name="off_axis_min_gain" type="number" min="0" max="1" step="0.01" value="0.15"></label>
+        <label>角外最大增益<input name="off_axis_max_gain" type="number" min="0" max="1" step="0.01" value="0.65"></label>
+        <div class="form-actions">
+          <button type="submit">应用整组参数</button>
+          <button type="button" id="resetParams" class="secondary">恢复固件默认值</button>
+        </div>
+      </form>
+
+      <div class="panel stats">
+        <h2>会话统计</h2>
+        <table>
+          <thead><tr><th>数据流</th><th>接收包</th><th>网络缺包</th></tr></thead>
+          <tbody id="statsBody"></tbody>
+        </table>
+        <dl>
+          <dt>会话 ID</dt><dd id="sessionValue">--</dd>
+          <dt>设备队列丢弃</dt><dd id="deviceDrops">0</dd>
+          <dt>非法包</dt><dd id="invalidPackets">0</dd>
+          <dt>录制目录</dt><dd id="recordingPath">--</dd>
+        </dl>
+        <p id="errorText" class="error"></p>
+      </div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

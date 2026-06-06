@@ -91,6 +91,7 @@ public:
      * Sends MAIN_EVENT_TOGGLE_CHAT to be handled in Run()
      */
     void ToggleChatState();
+    void SetAudioDebugMode(bool enable);
 
     /**
      * Start listening (event-based, thread-safe)
